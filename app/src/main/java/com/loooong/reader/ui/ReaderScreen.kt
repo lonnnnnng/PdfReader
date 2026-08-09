@@ -100,6 +100,7 @@ import androidx.compose.ui.window.DialogProperties
 import compose.icons.TablerIcons
 import compose.icons.tablericons.Bookmarks
 import compose.icons.tablericons.ChevronLeft
+import compose.icons.tablericons.ChevronRight
 import compose.icons.tablericons.Copy
 import compose.icons.tablericons.DotsVertical
 import compose.icons.tablericons.Edit
@@ -394,6 +395,22 @@ fun ReaderScreen(
                     onClick = onToggleFullscreen,
                 )
             }
+            if (readerState.searchResults.isNotEmpty()) {
+                ReaderSearchNavigationBar(
+                    results = readerState.searchResults,
+                    activeMatchIndex = readerState.activeSearchMatchIndex,
+                    onPrevious = {
+                        viewModel.moveReaderSearchResult(-1)?.let { jumpTo(it.pageIndex) }
+                    },
+                    onNext = {
+                        viewModel.moveReaderSearchResult(1)?.let { jumpTo(it.pageIndex) }
+                    },
+                    onClose = viewModel::clearReaderSearch,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(12.dp),
+                )
+            }
         }
     }
 
@@ -428,7 +445,6 @@ fun ReaderScreen(
             },
             onDismiss = {
                 panel = null
-                viewModel.clearReaderSearch()
             },
         )
         ReaderPanel.TEXT -> ReaderTextSheet(
@@ -499,6 +515,51 @@ fun ReaderScreen(
                 TextButton(onClick = { linkError = null }) { Text("知道了") }
             },
         )
+    }
+}
+
+@Composable
+private fun ReaderSearchNavigationBar(
+    results: List<ReaderSearchResult>,
+    activeMatchIndex: Int?,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val activePosition = results.indexOfFirst { it.matchIndex == activeMatchIndex }
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        tonalElevation = 4.dp,
+        shadowElevation = 4.dp,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.padding(horizontal = 4.dp),
+        ) {
+            IconButton(onClick = onPrevious) {
+                Icon(TablerIcons.ChevronLeft, contentDescription = "上一个搜索结果")
+            }
+            Text(
+                if (activePosition >= 0) {
+                    "${activePosition + 1}/${results.size}"
+                } else {
+                    "共 ${results.size} 处"
+                },
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+            IconButton(onClick = onNext) {
+                Icon(TablerIcons.ChevronRight, contentDescription = "下一个搜索结果")
+            }
+            IconButton(onClick = onClose) {
+                Icon(TablerIcons.X, contentDescription = "关闭搜索结果")
+            }
+        }
     }
 }
 

@@ -38,7 +38,10 @@ data class ReaderPageTextIndex(
     val pageIndex: Int,
     val text: String,
     val characterBounds: List<ReaderTextBounds?> = emptyList(),
-)
+) {
+    val coordinatesAvailable: Boolean
+        get() = characterBounds.size == text.length
+}
 
 data class ReaderOutlineEntry(
     val title: String,
@@ -245,6 +248,20 @@ internal fun readerPrefetchPages(currentPage: Int, pageCount: Int): List<Int> {
     if (pageCount <= 0) return emptyList()
     val safePage = currentPage.coerceIn(0, pageCount - 1)
     return ((safePage - 1).coerceAtLeast(0)..(safePage + 1).coerceAtMost(pageCount - 1)).toList()
+}
+
+/** long: 搜索导航允许从首尾循环，长文档中连续查看命中时无需重新打开结果列表。 */
+internal fun moveReaderSearchSelection(
+    results: List<ReaderSearchResult>,
+    currentMatchIndex: Int?,
+    delta: Int,
+): ReaderSearchResult? {
+    if (results.isEmpty()) return null
+    require(delta == -1 || delta == 1) { "搜索导航步长必须是一处" }
+    val currentPosition = results.indexOfFirst { it.matchIndex == currentMatchIndex }
+    if (currentPosition < 0) return if (delta > 0) results.first() else results.last()
+    val nextPosition = (currentPosition + delta + results.size) % results.size
+    return results[nextPosition]
 }
 
 private fun mergeReaderTextBounds(bounds: List<ReaderTextBounds>): List<ReaderTextBounds> {

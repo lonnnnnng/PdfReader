@@ -200,4 +200,20 @@ class ReaderDomainTest {
         assertTrue(results.last().snippet.contains("第二处"))
         assertFalse(results.last().snippet.contains("第一处"))
     }
+
+    @Test
+    fun searchResultNavigationStartsAtFirstAndWrapsAcrossDocumentEnds() {
+        val results = listOf(
+            ReaderSearchResult(0, 0, "第一页"),
+            ReaderSearchResult(1, 2, "第三页第一处"),
+            ReaderSearchResult(2, 2, "第三页第二处"),
+        )
+
+        assertEquals(0, moveReaderSearchSelection(results, currentMatchIndex = null, delta = 1)?.matchIndex)
+        assertEquals(2, moveReaderSearchSelection(results, currentMatchIndex = null, delta = -1)?.matchIndex)
+        assertEquals(2, moveReaderSearchSelection(results, currentMatchIndex = 0, delta = -1)?.matchIndex)
+        assertEquals(0, moveReaderSearchSelection(results, currentMatchIndex = 2, delta = 1)?.matchIndex)
+        assertEquals(1, moveReaderSearchSelection(results, currentMatchIndex = 0, delta = 1)?.matchIndex)
+        assertEquals(null, moveReaderSearchSelection(emptyList(), currentMatchIndex = null, delta = 1))
+    }
 }

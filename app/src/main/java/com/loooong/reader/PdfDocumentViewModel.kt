@@ -290,6 +290,7 @@ class PdfDocumentViewModel : ViewModel() {
                 pendingPasswordAction = null
                 passwordPrompt = null
                 if (effectiveMode == AppMode.READ) {
+                    restoreReaderSearchIndex(appContext)
                     preferences.record(
                         ReaderHistoryEntry(sourceUri, loaded.title, initialPage, System.currentTimeMillis()),
                     )
@@ -2085,13 +2086,20 @@ class PdfDocumentViewModel : ViewModel() {
         }
     }
 
-    private suspend fun readerPageIndex(pageIndex: Int): ReaderPageTextIndex {
+    private suspend fun readerPageIndex(
+        pageIndex: Int,
+        requireCoordinates: Boolean = false,
+    ): ReaderPageTextIndex {
         if (pageIndex !in 0 until state.pageCount) return ReaderPageTextIndex(pageIndex, "")
-        readerTextIndex[pageIndex]?.let { return it }
+        readerTextIndex[pageIndex]?.let { cached ->
+            if (!requireCoordinates || cached.coordinatesAvailable) return cached
+        }
         val generation = documentGeneration
         val indexed = withContext(Dispatchers.IO) {
             readerDataMutex.withLock {
-                readerTextIndex[pageIndex]?.let { return@withLock it }
+                readerTextIndex[pageIndex]?.let { cached ->
+                    if (!requireCoordinates || cached.coordinatesAvailable) return@withLock cached
+                }
                 val doc = document ?: return@withLock ReaderPageTextIndex(pageIndex, "")
                 ReaderTextIndexer.indexPage(doc, pageIndex)
             }
@@ -2121,6 +2129,7 @@ class PdfDocumentViewModel : ViewModel() {
             searchProgress = readerTextIndex.size.coerceAtMost(pageCount),
         )
         readerIndexJob = viewModelScope.launch {
+            var completedWithoutFailures = true
             remaining.forEach { pageIndex ->
                 if (generation != documentGeneration) return@launch
                 try {
@@ -2130,6 +2139,7 @@ class PdfDocumentViewModel : ViewModel() {
                     throw cancelled
                 } catch (failure: Throwable) {
                     Log.w(TAG, "reader text index failed page=$pageIndex", failure)
+                    completedWithoutFailures = false
                     readerTextIndex[pageIndex] = ReaderPageTextIndex(pageIndex, "")
                 }
                 val indexedCount = readerTextIndex.size.coerceAtMost(pageCount)
@@ -2140,9 +2150,40 @@ class PdfDocumentViewModel : ViewModel() {
             }
             if (generation == documentGeneration) {
                 readerState = readerState.copy(indexing = false, indexedPageCount = pageCount)
+                // long: 临时解析失败可用空页结束本次搜索，但不能写入磁盘，否则漏搜会跨重启长期存在。
+                if (completedWithoutFailures) persistReaderSearchIndex()
             }
         }
     }
+
+    private suspend fun restoreReaderSearchIndex(context: Context) {
+        val fingerprint = sourceFingerprint ?: return
+        if (document?.isEncrypted == true || state.dirty || state.pageCount <= 0) return
+        val restored = withContext(Dispatchers.IO) {
+            ReaderSearchIndexStore(readerSearchIndexDirectory(context)).load(fingerprint, state.pageCount)
+        } ?: return
+        if (restored.size != state.pageCount) return
+        restored.forEach { page -> readerTextIndex[page.pageIndex] = page }
+        readerState = readerState.copy(
+            indexing = false,
+            indexedPageCount = restored.size,
+            searchProgress = restored.size,
+        )
+    }
+
+    private suspend fun persistReaderSearchIndex() {
+        val context = applicationContext ?: return
+        val fingerprint = sourceFingerprint ?: return
+        if (document?.isEncrypted == true || state.dirty || readerTextIndex.size != state.pageCount) return
+        val pages = (0 until state.pageCount).mapNotNull(readerTextIndex::get)
+        if (pages.size != state.pageCount) return
+        withContext(Dispatchers.IO) {
+            ReaderSearchIndexStore(readerSearchIndexDirectory(context)).save(fingerprint, pages)
+        }
+    }
+
+    private fun readerSearchIndexDirectory(context: Context): File =
+        File(context.noBackupFilesDir, "reader-search-index")
 
     fun searchReader(rawQuery: String) {
         val query = rawQuery.trim()
@@ -2204,8 +2245,41 @@ class PdfDocumentViewModel : ViewModel() {
     }
 
     fun activateReaderSearchResult(matchIndex: Int) {
-        if (readerState.searchResults.none { it.matchIndex == matchIndex }) return
+        val selected = readerState.searchResults.firstOrNull { it.matchIndex == matchIndex } ?: return
         readerState = readerState.copy(activeSearchMatchIndex = matchIndex)
+        val page = readerTextIndex[selected.pageIndex]
+        if (page?.coordinatesAvailable == true) return
+        val generation = documentGeneration
+        val query = readerState.searchQuery
+        viewModelScope.launch {
+            try {
+                readerPageIndex(selected.pageIndex, requireCoordinates = true)
+                if (
+                    generation != documentGeneration ||
+                    query != readerState.searchQuery ||
+                    readerState.activeSearchMatchIndex != matchIndex
+                ) return@launch
+                val pages = (0 until state.pageCount).mapNotNull(readerTextIndex::get)
+                readerState = readerState.copy(
+                    searchResults = searchReaderIndex(pages, query),
+                    activeSearchMatchIndex = matchIndex,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                Log.w(TAG, "reader search highlight load failed page=${selected.pageIndex}", failure)
+            }
+        }
+    }
+
+    fun moveReaderSearchResult(delta: Int): ReaderSearchResult? {
+        val target = moveReaderSearchSelection(
+            results = readerState.searchResults,
+            currentMatchIndex = readerState.activeSearchMatchIndex,
+            delta = delta,
+        ) ?: return null
+        activateReaderSearchResult(target.matchIndex)
+        return target
     }
 
     fun select(id: Int?, reveal: Boolean = false) {

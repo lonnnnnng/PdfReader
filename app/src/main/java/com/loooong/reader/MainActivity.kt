@@ -124,6 +124,7 @@ import com.loooong.reader.engine.TextMarkupKind
 import com.loooong.reader.engine.StampKind
 import com.loooong.reader.engine.PdfFormFieldCreateRequest
 import com.loooong.reader.engine.PdfDigitalSignRequest
+import com.loooong.reader.engine.PdfPageExportMode
 import com.loooong.reader.engine.findNode
 import com.loooong.reader.ui.AnnotationEditDialog
 import com.loooong.reader.ui.AnnotationToolbarActions
@@ -241,6 +242,10 @@ fun InspectorScreen(
     var pendingSplitDocumentToken by rememberSaveable { mutableStateOf<Int?>(null) }
     var pendingExportPageIndices by rememberSaveable { mutableStateOf(arrayListOf<Int>()) }
     var pendingExportDocumentToken by rememberSaveable { mutableStateOf<Int?>(null) }
+    var pendingExportMode by rememberSaveable { mutableStateOf(PdfPageExportMode.PRESERVE_STRUCTURE) }
+    var exportChoicePageIndices by rememberSaveable { mutableStateOf(arrayListOf<Int>()) }
+    var exportChoiceDocumentToken by rememberSaveable { mutableStateOf<Int?>(null) }
+    var showPageExportMode by rememberSaveable { mutableStateOf(false) }
     var pendingDeletePageIndices by rememberSaveable { mutableStateOf(arrayListOf<Int>()) }
     var pendingDeleteDocumentToken by rememberSaveable { mutableStateOf<Int?>(null) }
     var pendingPageImportAfterIndex by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -251,6 +256,8 @@ fun InspectorScreen(
     var showDigitalSignatureWarning by rememberSaveable { mutableStateOf(false) }
     var pageTransferIssueTitle by remember { mutableStateOf<String?>(null) }
     var pageTransferIssueMessages by remember { mutableStateOf(emptyList<String>()) }
+    var pageTransferFlattenFallback by remember { mutableStateOf(emptySet<Int>()) }
+    var pageTransferFlattenFallbackToken by remember { mutableStateOf<Int?>(null) }
     var pdfPassword by remember { mutableStateOf("") }
 
     fun clearDigitalSignFlow() {
@@ -378,12 +385,29 @@ fun InspectorScreen(
     ) { uri ->
         val pageIndices = pendingExportPageIndices.toSet()
         val documentToken = pendingExportDocumentToken
+        val mode = pendingExportMode
         pendingExportPageIndices = arrayListOf()
         pendingExportDocumentToken = null
+        pendingExportMode = PdfPageExportMode.PRESERVE_STRUCTURE
         if (uri != null && pageIndices.isNotEmpty() && documentToken == state.documentToken) {
-            viewModel.exportPages(context, uri, pageIndices)
+            viewModel.exportPages(context, uri, pageIndices, mode)
         } else if (uri != null && documentToken != state.documentToken) {
             Toast.makeText(context, "文档内容已变化，请重新选择页面", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun launchPageExport(pageIndices: Set<Int>, mode: PdfPageExportMode) {
+        if (pageIndices.isEmpty() || pendingExportPageIndices.isNotEmpty()) return
+        pendingExportPageIndices = ArrayList(pageIndices.sorted())
+        pendingExportDocumentToken = state.documentToken
+        pendingExportMode = mode
+        val baseName = state.fileName.substringBeforeLast('.').ifBlank { "PDF" }
+        val suffix = if (mode == PdfPageExportMode.FLATTENED_COPY) "展平副本" else "选中页面"
+        runCatching { pageExportLauncher.launch("$baseName-$suffix.pdf") }.onFailure {
+            pendingExportPageIndices = arrayListOf()
+            pendingExportDocumentToken = null
+            pendingExportMode = PdfPageExportMode.PRESERVE_STRUCTURE
+            Toast.makeText(context, "无法打开保存位置，请重试", Toast.LENGTH_LONG).show()
         }
     }
     val pageImportLauncher = rememberLauncherForActivityResult(
@@ -1252,25 +1276,9 @@ fun InspectorScreen(
                 },
                 onSplit = { showPageSplit = true },
                 onExportPages = { pageIndices ->
-                    val issues = viewModel.pageTransferIssues(pageIndices)
-                    if (issues.isNotEmpty()) {
-                        pageTransferIssueTitle = "无法安全导出所选页面"
-                        pageTransferIssueMessages = issues.map { it.message }
-                    } else {
-                        // long: 预检通过后再打开 SAF；选择器返回前保留页码与文档版本，避免输出到已经变化的文档。
-                        if (pendingExportPageIndices.isEmpty()) {
-                            pendingExportPageIndices = ArrayList(pageIndices.sorted())
-                            pendingExportDocumentToken = state.documentToken
-                            val baseName = state.fileName.substringBeforeLast('.').ifBlank { "PDF" }
-                            runCatching {
-                                pageExportLauncher.launch("$baseName-选中页面.pdf")
-                            }.onFailure {
-                                pendingExportPageIndices = arrayListOf()
-                                pendingExportDocumentToken = null
-                                Toast.makeText(context, "无法打开保存位置，请重试", Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    }
+                    exportChoicePageIndices = ArrayList(pageIndices.sorted())
+                    exportChoiceDocumentToken = state.documentToken
+                    showPageExportMode = true
                 },
                 onRotatePages = { pageIndices -> viewModel.rotatePages(context, pageIndices) },
                 onCropPages = { pageIndices ->
@@ -1287,6 +1295,70 @@ fun InspectorScreen(
                 onDismiss = { showPageManager = false },
             )
         }
+    }
+
+    if (showPageExportMode && exportChoicePageIndices.isNotEmpty()) {
+        val selection = exportChoicePageIndices.toSet()
+        AlertDialog(
+            onDismissRequest = {
+                showPageExportMode = false
+                exportChoicePageIndices = arrayListOf()
+                exportChoiceDocumentToken = null
+            },
+            title = { Text("选择导出方式") },
+            text = {
+                Text(
+                    "保留结构适合继续编辑，并在导出全部页面时完整保留表单、标签、图层、附件与导航。" +
+                        "展平副本会把页面转为静态图像，兼容性更高，但文字不可选择，交互内容会移除。",
+                )
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showPageExportMode = false
+                        exportChoicePageIndices = arrayListOf()
+                        exportChoiceDocumentToken = null
+                    },
+                ) { Text("取消") }
+            },
+            confirmButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            val token = exportChoiceDocumentToken
+                            showPageExportMode = false
+                            exportChoicePageIndices = arrayListOf()
+                            exportChoiceDocumentToken = null
+                            if (token == state.documentToken) {
+                                launchPageExport(selection, PdfPageExportMode.FLATTENED_COPY)
+                            }
+                        },
+                    ) { Text("展平副本") }
+                    TextButton(
+                        onClick = {
+                            val token = exportChoiceDocumentToken
+                            showPageExportMode = false
+                            exportChoicePageIndices = arrayListOf()
+                            exportChoiceDocumentToken = null
+                            if (token == state.documentToken) {
+                                val issues = viewModel.pageTransferIssues(
+                                    selection,
+                                    PdfPageExportMode.PRESERVE_STRUCTURE,
+                                )
+                                if (issues.isEmpty()) {
+                                    launchPageExport(selection, PdfPageExportMode.PRESERVE_STRUCTURE)
+                                } else {
+                                    pageTransferIssueTitle = "无法完整保留所选页面结构"
+                                    pageTransferIssueMessages = issues.map { it.message }
+                                    pageTransferFlattenFallback = selection
+                                    pageTransferFlattenFallbackToken = token
+                                }
+                            }
+                        },
+                    ) { Text("保留结构") }
+                }
+            },
+        )
     }
 
     if (showPageCrop && state.mode == AppMode.EDIT && state.hasDocument) {
@@ -1389,6 +1461,8 @@ fun InspectorScreen(
             onDismissRequest = {
                 pageTransferIssueTitle = null
                 pageTransferIssueMessages = emptyList()
+                pageTransferFlattenFallback = emptySet()
+                pageTransferFlattenFallbackToken = null
             },
             title = { Text(title) },
             text = {
@@ -1396,13 +1470,36 @@ fun InspectorScreen(
                     pageTransferIssueMessages.joinToString("\n\n") { message -> "• $message" },
                 )
             },
+            dismissButton = if (pageTransferFlattenFallback.isNotEmpty()) {
+                {
+                    TextButton(
+                        onClick = {
+                            pageTransferIssueTitle = null
+                            pageTransferIssueMessages = emptyList()
+                            pageTransferFlattenFallback = emptySet()
+                            pageTransferFlattenFallbackToken = null
+                        },
+                    ) { Text("取消") }
+                }
+            } else {
+                null
+            },
             confirmButton = {
+                val fallback = pageTransferFlattenFallback
+                val fallbackToken = pageTransferFlattenFallbackToken
                 TextButton(
                     onClick = {
                         pageTransferIssueTitle = null
                         pageTransferIssueMessages = emptyList()
+                        pageTransferFlattenFallback = emptySet()
+                        pageTransferFlattenFallbackToken = null
+                        if (fallback.isNotEmpty() && fallbackToken == state.documentToken) {
+                            launchPageExport(fallback, PdfPageExportMode.FLATTENED_COPY)
+                        } else if (fallback.isNotEmpty()) {
+                            Toast.makeText(context, "文档内容已变化，请重新选择页面", Toast.LENGTH_LONG).show()
+                        }
                     },
-                ) { Text("我知道了") }
+                ) { Text(if (fallback.isNotEmpty()) "改用展平副本" else "我知道了") }
             },
         )
     }

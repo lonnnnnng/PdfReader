@@ -157,17 +157,47 @@ class ReaderDomainTest {
 
     @Test
     fun fullTextSearchReturnsPageNumberAndCompactSnippet() {
+        val searchableText = "Android PDF 阅读模式支持全文搜索，PDF 搜索结果会高亮。"
+        val characterBounds = searchableText.mapIndexed { index, _ ->
+            ReaderTextBounds(index * 10f, 20f, index * 10f + 10f, 36f)
+        }
         val pages = listOf(
-            "第一章 简介",
-            "Android PDF 阅读模式支持全文搜索和连续滚动。",
-            "附录",
+            ReaderPageTextIndex(0, "第一章 简介"),
+            ReaderPageTextIndex(
+                1,
+                searchableText,
+                characterBounds,
+            ),
+            ReaderPageTextIndex(2, "附录"),
         )
 
-        val results = searchPageTexts(pages, "pdf 阅读")
+        val results = searchReaderIndex(pages, "pdf")
 
-        assertEquals(1, results.size)
-        assertEquals(1, results.single().pageIndex)
-        assertTrue(results.single().snippet.contains("PDF 阅读模式", ignoreCase = true))
-        assertTrue(searchPageTexts(pages, "   ").isEmpty())
+        assertEquals(2, results.size)
+        assertEquals(listOf(1, 1), results.map { it.pageIndex })
+        assertEquals(listOf(0, 1), results.map { it.matchIndex })
+        assertTrue(results.first().snippet.contains("PDF 阅读模式", ignoreCase = true))
+        assertEquals(listOf(ReaderTextBounds(80f, 20f, 110f, 36f)), results.first().bounds)
+        assertTrue(searchReaderIndex(pages, "   ").isEmpty())
+    }
+
+    @Test
+    fun readerPrefetchKeepsImmediateNeighborsInsideDocumentBounds() {
+        assertEquals(listOf(0, 1), readerPrefetchPages(currentPage = 0, pageCount = 5))
+        assertEquals(listOf(1, 2, 3), readerPrefetchPages(currentPage = 2, pageCount = 5))
+        assertEquals(listOf(3, 4), readerPrefetchPages(currentPage = 4, pageCount = 5))
+        assertTrue(readerPrefetchPages(currentPage = 0, pageCount = 0).isEmpty())
+    }
+
+    @Test
+    fun repeatedSearchMatchesKeepTheirOwnSnippetContext() {
+        val text = "PDF 第一处 " + "中间内容".repeat(24) + " PDF 第二处"
+
+        val results = searchReaderIndex(listOf(ReaderPageTextIndex(0, text)), "PDF")
+
+        assertEquals(2, results.size)
+        assertTrue(results.first().snippet.contains("第一处"))
+        assertTrue(results.last().snippet.contains("第二处"))
+        assertFalse(results.last().snippet.contains("第一处"))
     }
 }

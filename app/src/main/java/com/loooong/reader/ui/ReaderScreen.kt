@@ -8,6 +8,7 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalOverscrollConfiguration
@@ -81,6 +82,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -117,6 +119,7 @@ import com.loooong.reader.PdfUiState
 import com.loooong.reader.ReaderOutlineEntry
 import com.loooong.reader.ReaderPageInfo
 import com.loooong.reader.ReaderSearchResult
+import com.loooong.reader.ReaderTextBounds
 import com.loooong.reader.ReaderUiState
 import com.loooong.reader.engine.PdfLinkInfo
 import com.loooong.reader.engine.PdfLinkKind
@@ -159,6 +162,9 @@ fun ReaderScreen(
     var linkError by remember { mutableStateOf<String?>(null) }
     val linksByPage = remember(readerState.links) {
         readerState.links.filter { it.bounds != null }.groupBy { it.id.pageIndex }
+    }
+    val searchResultsByPage = remember(readerState.searchResults) {
+        readerState.searchResults.groupBy(ReaderSearchResult::pageIndex)
     }
 
     fun jumpTo(pageIndex: Int) {
@@ -372,6 +378,8 @@ fun ReaderScreen(
                             viewModel = viewModel,
                             info = info,
                             links = linksByPage[info.pageIndex].orEmpty(),
+                            searchResults = searchResultsByPage[info.pageIndex].orEmpty(),
+                            activeSearchMatchIndex = readerState.activeSearchMatchIndex,
                             documentToken = state.documentToken,
                             onZoom = { zoomPage = info.pageIndex },
                             onOpenLink = ::openLink,
@@ -413,9 +421,10 @@ fun ReaderScreen(
             viewModel = viewModel,
             readerState = readerState,
             pageCount = state.pageCount,
-            onSelect = {
+            onSelect = { result ->
                 panel = null
-                jumpTo(it)
+                viewModel.activateReaderSearchResult(result.matchIndex)
+                jumpTo(result.pageIndex)
             },
             onDismiss = {
                 panel = null
@@ -554,6 +563,8 @@ private fun ReaderPage(
     viewModel: PdfDocumentViewModel,
     info: ReaderPageInfo,
     links: List<PdfLinkInfo>,
+    searchResults: List<ReaderSearchResult>,
+    activeSearchMatchIndex: Int?,
     documentToken: Int,
     onZoom: () -> Unit,
     onOpenLink: (PdfLinkInfo) -> Unit,
@@ -563,7 +574,7 @@ private fun ReaderPage(
         val targetWidth = constraints.maxWidth.coerceAtLeast(1)
         var retryTick by remember(info.pageIndex) { mutableIntStateOf(0) }
         LaunchedEffect(documentToken, info.pageIndex, targetWidth, retryTick) {
-            viewModel.ensureReaderPage(info.pageIndex, targetWidth)
+            viewModel.prefetchReaderPages(info.pageIndex, targetWidth)
         }
         val page = viewModel.readerPages[info.pageIndex]
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -587,6 +598,12 @@ private fun ReaderPage(
                                 contentDescription = "第 ${info.pageIndex + 1} 页",
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.FillBounds,
+                            )
+                            ReaderSearchHighlightOverlay(
+                                info = info,
+                                results = searchResults,
+                                activeMatchIndex = activeSearchMatchIndex,
+                                modifier = Modifier.fillMaxSize(),
                             )
                             ReaderLinkOverlay(
                                 info = info,
@@ -619,6 +636,37 @@ private fun ReaderPage(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+@Composable
+private fun ReaderSearchHighlightOverlay(
+    info: ReaderPageInfo,
+    results: List<ReaderSearchResult>,
+    activeMatchIndex: Int?,
+    modifier: Modifier = Modifier,
+) {
+    if (results.isEmpty()) return
+    val regularColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+    val activeColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.48f)
+    Canvas(modifier) {
+        results.forEach { result ->
+            val color = if (result.matchIndex == activeMatchIndex) activeColor else regularColor
+            result.bounds.forEach { bounds ->
+                val mapped = mapReaderTextBounds(
+                    bounds = bounds,
+                    pageWidthPoints = info.widthPoints,
+                    pageHeightPoints = info.heightPoints,
+                    displayedWidth = size.width,
+                    displayedHeight = size.height,
+                )
+                drawRect(
+                    color = color,
+                    topLeft = Offset(mapped.left, mapped.top),
+                    size = Size(mapped.width, mapped.height),
+                )
+            }
         }
     }
 }
@@ -946,7 +994,7 @@ private fun ReaderSearchSheet(
     viewModel: PdfDocumentViewModel,
     readerState: ReaderUiState,
     pageCount: Int,
-    onSelect: (Int) -> Unit,
+    onSelect: (ReaderSearchResult) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var query by remember { mutableStateOf(readerState.searchQuery) }
@@ -969,16 +1017,24 @@ private fun ReaderSearchSheet(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (readerState.searching) {
+            if (readerState.indexing || readerState.searching) {
                 Spacer(Modifier.height(12.dp))
-                LinearProgressIndicator(
-                    progress = {
-                        if (pageCount == 0) 0f else readerState.searchProgress.toFloat() / pageCount
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                if (readerState.indexing) {
+                    LinearProgressIndicator(
+                        progress = {
+                            if (pageCount == 0) 0f else readerState.indexedPageCount.toFloat() / pageCount
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
                 Text(
-                    "正在搜索 ${readerState.searchProgress}/$pageCount 页",
+                    if (readerState.indexing) {
+                        "正在建立搜索索引 ${readerState.indexedPageCount}/$pageCount 页"
+                    } else {
+                        "正在查询索引"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1011,7 +1067,7 @@ private fun SearchResultList(
     results: List<ReaderSearchResult>,
     searching: Boolean,
     hasQuery: Boolean,
-    onSelect: (Int) -> Unit,
+    onSelect: (ReaderSearchResult) -> Unit,
 ) {
     if (results.isEmpty()) {
         val message = when {
@@ -1025,8 +1081,10 @@ private fun SearchResultList(
     LazyColumn(Modifier.heightIn(max = 480.dp)) {
         items(results) { result ->
             ListItem(
-                modifier = Modifier.clickable { onSelect(result.pageIndex) },
-                headlineContent = { Text("第 ${result.pageIndex + 1} 页") },
+                modifier = Modifier.clickable { onSelect(result) },
+                headlineContent = {
+                    Text("第 ${result.pageIndex + 1} 页 · 第 ${result.matchIndex + 1} 处")
+                },
                 supportingContent = {
                     Text(result.snippet, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 },
@@ -1177,5 +1235,24 @@ internal fun mapReaderTileToRenderCoordinates(
         top = source.top * sourceScaleY,
         right = source.right * sourceScaleX,
         bottom = source.bottom * sourceScaleY,
+    )
+}
+
+internal fun mapReaderTextBounds(
+    bounds: ReaderTextBounds,
+    pageWidthPoints: Float,
+    pageHeightPoints: Float,
+    displayedWidth: Float,
+    displayedHeight: Float,
+): Rect {
+    require(pageWidthPoints > 0f && pageHeightPoints > 0f) { "PDF 页面尺寸必须大于 0" }
+    require(displayedWidth > 0f && displayedHeight > 0f) { "显示页面尺寸必须大于 0" }
+    val scaleX = displayedWidth / pageWidthPoints
+    val scaleY = displayedHeight / pageHeightPoints
+    return Rect(
+        left = (bounds.left * scaleX).coerceIn(0f, displayedWidth),
+        top = (bounds.top * scaleY).coerceIn(0f, displayedHeight),
+        right = (bounds.right * scaleX).coerceIn(0f, displayedWidth),
+        bottom = (bounds.bottom * scaleY).coerceIn(0f, displayedHeight),
     )
 }

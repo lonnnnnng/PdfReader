@@ -1,6 +1,7 @@
 package com.loooong.reader
 
 import com.loooong.reader.ui.mapReaderTileToRenderCoordinates
+import com.loooong.reader.ui.mapReaderTextBounds
 import androidx.compose.ui.geometry.Rect
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -35,6 +36,19 @@ class ReaderTileMappingTest {
         )
 
         assertRectEquals(source, mapped)
+    }
+
+    @Test
+    fun searchBoundsAreMappedFromPagePointsToDisplayedPage() {
+        val mapped = mapReaderTextBounds(
+            bounds = ReaderTextBounds(60f, 80f, 180f, 104f),
+            pageWidthPoints = 600f,
+            pageHeightPoints = 800f,
+            displayedWidth = 300f,
+            displayedHeight = 400f,
+        )
+
+        assertRectEquals(Rect(30f, 40f, 90f, 52f), mapped)
     }
 
     private fun assertRectEquals(expected: Rect, actual: Rect) {

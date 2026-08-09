@@ -37,7 +37,6 @@ import com.tom_roush.pdfbox.pdmodel.interactive.annotation.PDAnnotationMarkup
 import com.tom_roush.pdfbox.pdmodel.interactive.annotation.PDAnnotationRubberStamp
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineNode
 import com.tom_roush.pdfbox.rendering.PDFRenderer
-import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.loooong.reader.engine.ContentStreamEngine
 import com.loooong.reader.engine.Bounds
 import com.loooong.reader.engine.AlignmentAction
@@ -88,6 +87,10 @@ import com.loooong.reader.engine.PdfPageDecorationEditor
 import com.loooong.reader.engine.PdfPageDecorationRequest
 import com.loooong.reader.engine.PdfPageTransferInspector
 import com.loooong.reader.engine.PdfPageTransferIssue
+import com.loooong.reader.engine.PdfFlattenedCopyExporter
+import com.loooong.reader.engine.PdfPageExportMode
+import com.loooong.reader.engine.PdfPageExportStrategy
+import com.loooong.reader.engine.planPdfPageExport
 import com.loooong.reader.engine.PdfLinkEditor
 import com.loooong.reader.engine.PdfLinkId
 import com.loooong.reader.engine.PdfLinkInfo
@@ -146,6 +149,7 @@ class PdfDocumentViewModel : ViewModel() {
     private val readerDataMutex = Mutex()
     private var documentGeneration = 0
     private var searchJob: Job? = null
+    private var readerIndexJob: Job? = null
     private var ocrJob: Job? = null
     private var compressionJob: Job? = null
     private var digitalSignatureInspectionJob: Job? = null
@@ -179,7 +183,7 @@ class PdfDocumentViewModel : ViewModel() {
         private set
     private val readerPageLru = LinkedHashSet<Int>()
     private val readerThumbnailLru = LinkedHashSet<Int>()
-    private val readerTextCache = HashMap<Int, String>()
+    private val readerTextIndex = java.util.concurrent.ConcurrentHashMap<Int, ReaderPageTextIndex>()
 
     private var fontCatalog: FontCatalog? = null
     private var embeddedFonts = false
@@ -291,6 +295,7 @@ class PdfDocumentViewModel : ViewModel() {
                     )
                     readerHistory = preferences.loadHistory()
                     ensureReaderPage(initialPage, DEFAULT_READER_WIDTH_PX)
+                    startReaderIndexing()
                 }
                 if (effectiveMode != mode) {
                     Toast.makeText(context, "当前密码仅允许阅读，已进入阅读模式", Toast.LENGTH_LONG).show()
@@ -1781,10 +1786,13 @@ class PdfDocumentViewModel : ViewModel() {
         if (mode == AppMode.READ) {
             state = state.copy(mode = AppMode.READ, selectedId = null, selectedIds = emptySet(), editingId = null)
             ensureReaderPage(state.pageIndex, DEFAULT_READER_WIDTH_PX)
+            startReaderIndexing()
             return
         }
         viewModelScope.launch {
             searchJob?.cancelAndJoin()
+            readerIndexJob?.cancelAndJoin()
+            readerState = readerState.copy(indexing = false)
             state = state.copy(busy = "正在进入编辑模式")
             renderPage(state.pageIndex)
             state = state.copy(mode = AppMode.EDIT, busy = null)
@@ -1993,6 +2001,12 @@ class PdfDocumentViewModel : ViewModel() {
         ensureReaderImage(pageIndex, targetWidthPx, thumbnail = false)
     }
 
+    fun prefetchReaderPages(pageIndex: Int, targetWidthPx: Int) {
+        readerPrefetchPages(pageIndex, state.pageCount).forEach { targetPage ->
+            ensureReaderImage(targetPage, targetWidthPx, thumbnail = false)
+        }
+    }
+
     fun ensureReaderThumbnail(pageIndex: Int) {
         ensureReaderImage(pageIndex, THUMBNAIL_WIDTH_PX, thumbnail = true)
     }
@@ -2071,20 +2085,61 @@ class PdfDocumentViewModel : ViewModel() {
         }
     }
 
-    suspend fun readerPageText(pageIndex: Int): String {
-        if (pageIndex !in 0 until state.pageCount) return ""
+    private suspend fun readerPageIndex(pageIndex: Int): ReaderPageTextIndex {
+        if (pageIndex !in 0 until state.pageCount) return ReaderPageTextIndex(pageIndex, "")
+        readerTextIndex[pageIndex]?.let { return it }
         val generation = documentGeneration
-        return withContext(Dispatchers.IO) {
+        val indexed = withContext(Dispatchers.IO) {
             readerDataMutex.withLock {
-                readerTextCache[pageIndex]?.let { return@withLock it }
-                val doc = document ?: return@withLock ""
-                val text = PDFTextStripper().apply {
-                    startPage = pageIndex + 1
-                    endPage = pageIndex + 1
-                    sortByPosition = true
-                }.getText(doc).trim()
-                if (generation == documentGeneration) readerTextCache[pageIndex] = text
-                text
+                readerTextIndex[pageIndex]?.let { return@withLock it }
+                val doc = document ?: return@withLock ReaderPageTextIndex(pageIndex, "")
+                ReaderTextIndexer.indexPage(doc, pageIndex)
+            }
+        }
+        if (generation == documentGeneration) readerTextIndex[pageIndex] = indexed
+        return indexed
+    }
+
+    suspend fun readerPageText(pageIndex: Int): String = readerPageIndex(pageIndex).text.trim()
+
+    private fun startReaderIndexing() {
+        val pageCount = state.pageCount
+        if (pageCount <= 0 || readerIndexJob?.isActive == true) return
+        val generation = documentGeneration
+        val remaining = (0 until pageCount).filterNot(readerTextIndex::containsKey)
+        if (remaining.isEmpty()) {
+            readerState = readerState.copy(
+                indexing = false,
+                indexedPageCount = pageCount,
+                searchProgress = pageCount,
+            )
+            return
+        }
+        readerState = readerState.copy(
+            indexing = true,
+            indexedPageCount = readerTextIndex.size.coerceAtMost(pageCount),
+            searchProgress = readerTextIndex.size.coerceAtMost(pageCount),
+        )
+        readerIndexJob = viewModelScope.launch {
+            remaining.forEach { pageIndex ->
+                if (generation != documentGeneration) return@launch
+                try {
+                    readerPageIndex(pageIndex)
+                } catch (cancelled: CancellationException) {
+                    // long: 文档切换或进入编辑模式会取消后台索引，未处理页面必须留待下次继续，不能误记为无文本。
+                    throw cancelled
+                } catch (failure: Throwable) {
+                    Log.w(TAG, "reader text index failed page=$pageIndex", failure)
+                    readerTextIndex[pageIndex] = ReaderPageTextIndex(pageIndex, "")
+                }
+                val indexedCount = readerTextIndex.size.coerceAtMost(pageCount)
+                readerState = readerState.copy(
+                    indexedPageCount = indexedCount,
+                    searchProgress = indexedCount,
+                )
+            }
+            if (generation == documentGeneration) {
+                readerState = readerState.copy(indexing = false, indexedPageCount = pageCount)
             }
         }
     }
@@ -2099,10 +2154,12 @@ class PdfDocumentViewModel : ViewModel() {
                 searching = false,
                 searchProgress = 0,
                 searchError = null,
+                activeSearchMatchIndex = null,
             )
             return
         }
         val generation = documentGeneration
+        startReaderIndexing()
         readerState = readerState.copy(
             searchQuery = query,
             searchResults = emptyList(),
@@ -2112,16 +2169,14 @@ class PdfDocumentViewModel : ViewModel() {
         )
         searchJob = viewModelScope.launch {
             try {
-                val texts = ArrayList<String>(state.pageCount)
-                for (pageIndex in 0 until state.pageCount) {
-                    if (generation != documentGeneration) return@launch
-                    texts += readerPageText(pageIndex)
-                    readerState = readerState.copy(searchProgress = pageIndex + 1)
-                }
+                readerIndexJob?.join()
                 if (generation == documentGeneration) {
+                    val pages = (0 until state.pageCount).mapNotNull(readerTextIndex::get)
+                    val results = searchReaderIndex(pages, query)
                     readerState = readerState.copy(
-                        searchResults = searchPageTexts(texts, query),
+                        searchResults = results,
                         searching = false,
+                        activeSearchMatchIndex = null,
                     )
                 }
             } catch (cancelled: CancellationException) {
@@ -2144,7 +2199,13 @@ class PdfDocumentViewModel : ViewModel() {
             searching = false,
             searchProgress = 0,
             searchError = null,
+            activeSearchMatchIndex = null,
         )
+    }
+
+    fun activateReaderSearchResult(matchIndex: Int) {
+        if (readerState.searchResults.none { it.matchIndex == matchIndex }) return
+        readerState = readerState.copy(activeSearchMatchIndex = matchIndex)
     }
 
     fun select(id: Int?, reveal: Boolean = false) {
@@ -3596,9 +3657,17 @@ class PdfDocumentViewModel : ViewModel() {
         }
     }
 
-    fun pageTransferIssues(pageIndices: Set<Int>): List<PdfPageTransferIssue> {
+    fun pageTransferIssues(
+        pageIndices: Set<Int>,
+        mode: PdfPageExportMode = PdfPageExportMode.PRESERVE_STRUCTURE,
+    ): List<PdfPageTransferIssue> {
         val doc = document ?: return emptyList()
-        return PdfPageTransferInspector.inspect(doc, pageIndices)
+        val strategy = planPdfPageExport(mode, doc.numberOfPages, pageIndices)
+        return if (strategy == PdfPageExportStrategy.REBUILD_SELECTION) {
+            PdfPageTransferInspector.inspect(doc, pageIndices)
+        } else {
+            emptyList()
+        }
     }
 
     fun pageTransferIssues(ranges: List<IntRange>): List<PdfPageTransferIssue> {
@@ -3611,6 +3680,7 @@ class PdfDocumentViewModel : ViewModel() {
         context: Context,
         uri: Uri,
         pageIndices: Set<Int>,
+        mode: PdfPageExportMode = PdfPageExportMode.PRESERVE_STRUCTURE,
         onComplete: (Boolean) -> Unit = {},
     ) {
         if (state.busy != null || pageIndices.isEmpty()) {
@@ -3621,24 +3691,65 @@ class PdfDocumentViewModel : ViewModel() {
             onComplete(false)
             return
         }
-        // long: 页面提取只生成新文档，不改当前来源、脏状态或撤销栈，用户可继续编辑原 PDF。
-        state = state.copy(busy = "正在导出 ${pageIndices.size} 页", error = null)
+        val strategy = runCatching { planPdfPageExport(mode, doc.numberOfPages, pageIndices) }
+            .getOrElse {
+                onComplete(false)
+                return
+            }
+        // long: 三种策略都只生成新文档，不改当前来源、脏状态或撤销栈，用户导出后可继续编辑原 PDF。
+        val busyLabel = if (mode == PdfPageExportMode.FLATTENED_COPY) {
+            "正在展平并导出 ${pageIndices.size} 页"
+        } else {
+            "正在导出 ${pageIndices.size} 页"
+        }
+        state = state.copy(busy = busyLabel, error = null)
         viewModelScope.launch {
             var exported = false
             try {
                 withContext(Dispatchers.IO) {
                     readerDataMutex.withLock {
-                        PageTreeEditor.extract(doc, pageIndices).use { extracted ->
-                            PdfDocumentWriter.writeNewTarget(
-                                document = extracted,
+                        when (strategy) {
+                            PdfPageExportStrategy.DIRECT_DOCUMENT -> PdfDocumentWriter.writeNewTarget(
+                                document = doc,
                                 openOutput = { context.contentResolver.openOutputStream(uri, "wt") },
                                 stagingFile = File.createTempFile("pdf-pages-export-", ".pdf", context.cacheDir),
+                                validationPassword = documentPassword,
                             )
+                            PdfPageExportStrategy.REBUILD_SELECTION -> PageTreeEditor.extract(doc, pageIndices)
+                                .use { extracted ->
+                                    PdfDocumentWriter.writeNewTarget(
+                                        document = extracted,
+                                        openOutput = { context.contentResolver.openOutputStream(uri, "wt") },
+                                        stagingFile = File.createTempFile(
+                                            "pdf-pages-export-",
+                                            ".pdf",
+                                            context.cacheDir,
+                                        ),
+                                    )
+                                }
+                            PdfPageExportStrategy.FLATTEN_SELECTION -> PdfFlattenedCopyExporter
+                                .create(doc, pageIndices)
+                                .use { flattened ->
+                                    PdfDocumentWriter.writeNewTarget(
+                                        document = flattened,
+                                        openOutput = { context.contentResolver.openOutputStream(uri, "wt") },
+                                        stagingFile = File.createTempFile(
+                                            "pdf-flattened-export-",
+                                            ".pdf",
+                                            context.cacheDir,
+                                        ),
+                                    )
+                                }
                         }
                     }
                 }
                 exported = true
-                Toast.makeText(context, "已导出 ${pageIndices.size} 页", Toast.LENGTH_SHORT).show()
+                val message = if (mode == PdfPageExportMode.FLATTENED_COPY) {
+                    "已导出展平副本，共 ${pageIndices.size} 页"
+                } else {
+                    "已保留结构导出 ${pageIndices.size} 页"
+                }
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
             } catch (t: Throwable) {
                 Log.e(TAG, "page export failed", t)
                 state = state.copy(error = "导出所选页面失败，请重试")
@@ -4473,20 +4584,24 @@ class PdfDocumentViewModel : ViewModel() {
     }
 
     private fun clearReaderCaches() {
+        readerIndexJob?.cancel()
+        readerIndexJob = null
         readerPages.clear()
         readerThumbnails.clear()
         readerPageLru.clear()
         readerThumbnailLru.clear()
-        readerTextCache.clear()
+        readerTextIndex.clear()
         readerState = ReaderUiState()
     }
 
     private fun invalidateReaderDocumentContent() {
+        readerIndexJob?.cancel()
+        readerIndexJob = null
         readerPages.clear()
         readerThumbnails.clear()
         readerPageLru.clear()
         readerThumbnailLru.clear()
-        readerTextCache.clear()
+        readerTextIndex.clear()
         val pageInfos = document?.let(::collectReaderPageInfos) ?: readerState.pageInfos
         readerState = readerState.copy(
             pageInfos = pageInfos,
@@ -4495,12 +4610,16 @@ class PdfDocumentViewModel : ViewModel() {
             searching = false,
             searchProgress = 0,
             searchError = null,
+            indexing = false,
+            indexedPageCount = 0,
+            activeSearchMatchIndex = null,
         )
     }
 
     override fun onCleared() {
         documentGeneration++
         searchJob?.cancel()
+        readerIndexJob?.cancel()
         if (state.dirty && state.mode == AppMode.EDIT) {
             val context = applicationContext
             val file = cacheFile
@@ -4795,4 +4914,7 @@ data class ReaderUiState(
     val searching: Boolean = false,
     val searchProgress: Int = 0,
     val searchError: String? = null,
+    val indexing: Boolean = false,
+    val indexedPageCount: Int = 0,
+    val activeSearchMatchIndex: Int? = null,
 )

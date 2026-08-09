@@ -21,8 +21,23 @@ data class ReaderHistoryEntry(
 )
 
 data class ReaderSearchResult(
+    val matchIndex: Int,
     val pageIndex: Int,
     val snippet: String,
+    val bounds: List<ReaderTextBounds> = emptyList(),
+)
+
+data class ReaderTextBounds(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+)
+
+data class ReaderPageTextIndex(
+    val pageIndex: Int,
+    val text: String,
+    val characterBounds: List<ReaderTextBounds?> = emptyList(),
 )
 
 data class ReaderOutlineEntry(
@@ -190,23 +205,82 @@ internal fun removeReadingHistory(
 internal fun togglePageBookmark(existing: Set<Int>, pageIndex: Int): Set<Int> =
     if (pageIndex in existing) existing - pageIndex else existing + pageIndex
 
-internal fun searchPageTexts(pageTexts: List<String>, rawQuery: String): List<ReaderSearchResult> {
+internal fun searchReaderIndex(
+    pages: List<ReaderPageTextIndex>,
+    rawQuery: String,
+): List<ReaderSearchResult> {
     val query = rawQuery.trim()
     if (query.isEmpty()) return emptyList()
-    return pageTexts.mapIndexedNotNull { pageIndex, text ->
-        val match = text.indexOf(query, ignoreCase = true)
-        if (match < 0) null else ReaderSearchResult(pageIndex, searchSnippet(text, match, query.length))
+
+    var matchIndex = 0
+    return buildList {
+        pages.forEach { page ->
+            var searchFrom = 0
+            while (searchFrom <= page.text.length - query.length) {
+                val match = page.text.indexOf(query, startIndex = searchFrom, ignoreCase = true)
+                if (match < 0) break
+                add(
+                    ReaderSearchResult(
+                        matchIndex = matchIndex++,
+                        pageIndex = page.pageIndex,
+                        snippet = searchSnippet(page.text, match, query.length),
+                        bounds = mergeReaderTextBounds(
+                            page.characterBounds
+                                .subList(
+                                    match.coerceAtMost(page.characterBounds.size),
+                                    (match + query.length).coerceAtMost(page.characterBounds.size),
+                                )
+                                .filterNotNull(),
+                        ),
+                    ),
+                )
+                searchFrom = match + query.length.coerceAtLeast(1)
+            }
+        }
+    }
+}
+
+/** long: 只预取当前页的直接邻页，缓存命中能覆盖正常连续阅读，同时不会让大文档在后台持续占用渲染资源。 */
+internal fun readerPrefetchPages(currentPage: Int, pageCount: Int): List<Int> {
+    if (pageCount <= 0) return emptyList()
+    val safePage = currentPage.coerceIn(0, pageCount - 1)
+    return ((safePage - 1).coerceAtLeast(0)..(safePage + 1).coerceAtMost(pageCount - 1)).toList()
+}
+
+private fun mergeReaderTextBounds(bounds: List<ReaderTextBounds>): List<ReaderTextBounds> {
+    if (bounds.isEmpty()) return emptyList()
+    return buildList {
+        bounds.forEach { next ->
+            val previous = lastOrNull()
+            val sameLine = previous != null &&
+                kotlin.math.abs(previous.top - next.top) <= maxOf(previous.bottom - previous.top, 1f) * 0.6f &&
+                next.left - previous.right <= maxOf(previous.bottom - previous.top, 1f)
+            if (sameLine) {
+                this[lastIndex] = ReaderTextBounds(
+                    left = minOf(previous!!.left, next.left),
+                    top = minOf(previous.top, next.top),
+                    right = maxOf(previous.right, next.right),
+                    bottom = maxOf(previous.bottom, next.bottom),
+                )
+            } else {
+                add(next)
+            }
+        }
     }
 }
 
 private fun searchSnippet(text: String, matchStart: Int, matchLength: Int): String {
     val compact = text.replace(Regex("\\s+"), " ").trim()
-    val compactMatch = compact.indexOf(
-        text.substring(matchStart, (matchStart + matchLength).coerceAtMost(text.length)),
-        ignoreCase = true,
-    ).coerceAtLeast(0)
+    val compactMatch = text.substring(0, matchStart)
+        .replace(Regex("\\s+"), " ")
+        .trimStart()
+        .length
+        .coerceIn(0, compact.length)
+    val compactMatchLength = text.substring(matchStart, (matchStart + matchLength).coerceAtMost(text.length))
+        .replace(Regex("\\s+"), " ")
+        .length
     val start = (compactMatch - 28).coerceAtLeast(0)
-    val end = (compactMatch + matchLength + 44).coerceAtMost(compact.length)
+    val end = (compactMatch + compactMatchLength + 44).coerceAtMost(compact.length)
     return buildString {
         if (start > 0) append("…")
         append(compact.substring(start, end))

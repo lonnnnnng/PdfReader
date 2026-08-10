@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -165,6 +166,98 @@ class EbookDomainTest {
         assertEquals("local-a.epub", merged.first().cacheFileName)
         assertEquals(0.42f, merged.first().progress)
         assertTrue(mergeEbookHistory(existing, existing.first(), limit = 0).isEmpty())
+    }
+
+    @Test
+    fun ebookBookmarkKeysSeparateTxtParagraphsAndEpubLocators() {
+        val txtFirst = EbookBookmark(
+            sourceId = "book",
+            format = EbookFormat.TXT,
+            paragraphIndex = 1,
+            title = "第一章",
+            createdAt = 1L,
+        )
+        val txtSecond = txtFirst.copy(paragraphIndex = 2)
+        val epub = EbookBookmark(
+            sourceId = "book",
+            format = EbookFormat.EPUB,
+            locatorJson = "{\"href\":\"chapter.xhtml\"}",
+            title = "第二章",
+            createdAt = 2L,
+        )
+
+        assertTrue(ebookBookmarkKey(txtFirst) != ebookBookmarkKey(txtSecond))
+        assertTrue(ebookBookmarkKey(txtFirst) != ebookBookmarkKey(epub))
+        assertEquals(ebookBookmarkKey(epub), ebookBookmarkKey(epub.copy(title = "其他标题")))
+    }
+
+    @Test
+    fun epubBookmarkLocationUsesStablePositionInsteadOfChangingProgress() {
+        val first = JSONObject()
+            .put("href", "chapter.xhtml")
+            .put(
+                "locations",
+                JSONObject()
+                    .put("position", 12)
+                    .put("progression", 0.25)
+                    .put("totalProgression", 0.40),
+            )
+            .put("title", "第一章")
+            .toString()
+        val samePosition = JSONObject()
+            .put("href", "chapter.xhtml")
+            .put(
+                "locations",
+                JSONObject()
+                    .put("position", 12)
+                    .put("progression", 0.28)
+                    .put("totalProgression", 0.43),
+            )
+            .put("title", "更新后的标题")
+            .toString()
+        val nextPosition = JSONObject()
+            .put("href", "chapter.xhtml")
+            .put("locations", JSONObject().put("position", 13))
+            .toString()
+
+        assertEquals(epubBookmarkLocationKey(first), epubBookmarkLocationKey(samePosition))
+        assertTrue(epubBookmarkLocationKey(first) != epubBookmarkLocationKey(nextPosition))
+        assertNull(epubBookmarkLocationKey("{broken"))
+    }
+
+    @Test
+    fun ebookBookmarkToggleRemovesDuplicatesAndKeepsNewestWithinLimit() {
+        val existing = (0 until 3).map { index ->
+            EbookBookmark(
+                sourceId = "book",
+                format = EbookFormat.TXT,
+                paragraphIndex = index,
+                title = "第 ${index + 1} 段",
+                createdAt = index.toLong(),
+            )
+        }
+        val newest = EbookBookmark(
+            sourceId = "book",
+            format = EbookFormat.TXT,
+            paragraphIndex = 9,
+            title = "新书签",
+            createdAt = 9L,
+        )
+
+        val added = toggledEbookBookmarks(existing, newest, limit = 3)
+        assertEquals(listOf(9, 0, 1), added.map { it.paragraphIndex })
+        assertEquals(existing.take(2), toggledEbookBookmarks(added, newest, limit = 3))
+        assertTrue(toggledEbookBookmarks(existing, newest, limit = 0).isEmpty())
+    }
+
+    @Test
+    fun bookmarkTitlesDistinguishLocationsWithinTheSameChapter() {
+        assertEquals(
+            "第一章 · 夜色很深。",
+            txtBookmarkTitle("第一章", " 夜色很深。 ", paragraphIndex = 4),
+        )
+        assertEquals("第 5 段", txtBookmarkTitle("正文", "", paragraphIndex = 4))
+        assertEquals("第二章 · 43%", epubBookmarkTitle("第二章", 0.426f))
     }
 
     private fun epubBytes(mimetype: String, compressed: Boolean): ByteArray {

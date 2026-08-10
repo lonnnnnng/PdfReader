@@ -2,6 +2,7 @@ package com.loooong.reader
 
 import android.content.Context
 import androidx.core.content.edit
+import kotlin.math.roundToInt
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -33,6 +34,78 @@ data class EbookHistoryEntry(
     val cacheFileName: String? = null,
     val progress: Float? = null,
 )
+
+data class EbookBookmark(
+    val sourceId: String,
+    val format: EbookFormat,
+    val paragraphIndex: Int = 0,
+    val locatorJson: String? = null,
+    val locationKey: String? = null,
+    val title: String,
+    val progress: Float? = null,
+    val createdAt: Long,
+)
+
+internal fun ebookBookmarkKey(bookmark: EbookBookmark): String =
+    when (bookmark.format) {
+        EbookFormat.TXT -> "${bookmark.sourceId}:TXT:${bookmark.paragraphIndex}"
+        EbookFormat.EPUB -> {
+            val location = bookmark.locationKey
+                ?: epubBookmarkLocationKey(bookmark.locatorJson)
+                ?: bookmark.locatorJson.orEmpty()
+            "${bookmark.sourceId}:EPUB:$location"
+        }
+    }
+
+internal fun epubBookmarkLocationKey(locatorJson: String?): String? {
+    val raw = locatorJson?.takeIf(String::isNotBlank) ?: return null
+    return runCatching {
+        val locator = JSONObject(raw)
+        val href = locator.optString("href").takeIf(String::isNotBlank) ?: return@runCatching null
+        val resourceHref = href.substringBefore('#')
+        val hrefFragment = href.substringAfter('#', missingDelimiterValue = "").takeIf(String::isNotBlank)
+        val locations = locator.optJSONObject("locations") ?: JSONObject()
+        val fragments = locations.optJSONArray("fragments")
+            ?.takeIf { it.length() > 0 }
+            ?.toString()
+        val position = locations.optInt("position", 0).takeIf { it > 0 }
+        val progression = locations.optDouble("progression", Double.NaN).takeIf(Double::isFinite)
+        val totalProgression = locations.optDouble("totalProgression", Double.NaN).takeIf(Double::isFinite)
+        // long: EPUB 的标题、上下文和总进度会随排版变化；优先用 CFI/position 等稳定位置去重，避免同一书签重复添加。
+        val anchor = when {
+            fragments != null -> "fragments:$fragments"
+            hrefFragment != null -> "fragment:$hrefFragment"
+            position != null -> "position:$position"
+            progression != null -> "progression:${progression.toBookmarkBucket()}"
+            totalProgression != null -> "total:${totalProgression.toBookmarkBucket()}"
+            else -> "resource"
+        }
+        "$resourceHref|$anchor"
+    }.getOrNull()
+}
+
+internal fun toggledEbookBookmarks(
+    existing: List<EbookBookmark>,
+    bookmark: EbookBookmark,
+    limit: Int = MAX_EBOOK_BOOKMARKS_PER_BOOK,
+): List<EbookBookmark> {
+    if (limit <= 0) return emptyList()
+    val key = ebookBookmarkKey(bookmark)
+    return if (existing.any { ebookBookmarkKey(it) == key }) {
+        existing.filterNot { ebookBookmarkKey(it) == key }
+    } else {
+        buildList {
+            add(bookmark)
+            existing.asSequence()
+                .filterNot { ebookBookmarkKey(it) == key }
+                .take(limit - 1)
+                .forEach(::add)
+        }
+    }
+}
+
+private fun Double.toBookmarkBucket(): Int =
+    (coerceIn(0.0, 1.0) * EPUB_BOOKMARK_PROGRESSION_BUCKETS).roundToInt()
 
 internal fun mergeEbookHistory(
     existing: List<EbookHistoryEntry>,
@@ -92,6 +165,7 @@ class EbookPreferences(context: Context) {
 
     fun removeHistory(sourceId: String) {
         saveHistory(loadHistory().filterNot { it.sourceId == sourceId })
+        removeBookmarks(sourceId)
     }
 
     fun removePosition(sourceId: String) {
@@ -108,6 +182,81 @@ class EbookPreferences(context: Context) {
                 if (entry.sourceId == sourceId) entry.copy(progress = progress.coerceIn(0f, 1f)) else entry
             },
         )
+    }
+
+    fun loadBookmarks(sourceId: String): List<EbookBookmark> {
+        val raw = runCatching {
+            JSONObject(preferences.getString(KEY_BOOKMARKS, null) ?: "{}").optJSONArray(sourceId)
+        }.getOrNull() ?: return emptyList()
+        return buildList {
+            for (index in 0 until raw.length().coerceAtMost(MAX_EBOOK_BOOKMARKS_PER_BOOK)) {
+                val bookmark = runCatching {
+                    val item = raw.getJSONObject(index)
+                    val format = EbookFormat.valueOf(item.getString("format"))
+                    val locatorJson = item.optString("locatorJson")
+                        .takeIf { it.isNotBlank() && it != "null" }
+                    EbookBookmark(
+                        sourceId = sourceId,
+                        format = format,
+                        paragraphIndex = item.optInt("paragraphIndex", 0).coerceAtLeast(0),
+                        locatorJson = locatorJson,
+                        locationKey = if (format == EbookFormat.EPUB) {
+                            epubBookmarkLocationKey(locatorJson)
+                        } else {
+                            null
+                        },
+                        title = item.optString("title", "阅读位置"),
+                        progress = normalizedEbookProgress(
+                            item.optDouble("progress", Double.NaN),
+                        ),
+                        createdAt = item.optLong("createdAt", 0L),
+                    )
+                }.getOrNull() ?: continue
+                // long: 单条旧数据损坏不应拖垮整本书的书签；无法恢复定位的 EPUB 记录直接跳过。
+                if (bookmark.format == EbookFormat.EPUB && bookmark.locationKey == null) {
+                    continue
+                }
+                add(bookmark)
+            }
+        }.distinctBy(::ebookBookmarkKey)
+    }
+
+    fun saveBookmarks(sourceId: String, bookmarks: List<EbookBookmark>) {
+        val root = runCatching {
+            JSONObject(preferences.getString(KEY_BOOKMARKS, null) ?: "{}")
+        }.getOrElse { JSONObject() }
+        val normalized = bookmarks.asSequence()
+            .filter { it.sourceId == sourceId }
+            .distinctBy(::ebookBookmarkKey)
+            .take(MAX_EBOOK_BOOKMARKS_PER_BOOK)
+            .toList()
+        if (normalized.isEmpty()) {
+            root.remove(sourceId)
+            preferences.edit { putString(KEY_BOOKMARKS, root.toString()) }
+            return
+        }
+        val array = JSONArray()
+        normalized.forEach { bookmark ->
+            array.put(
+                JSONObject()
+                    .put("format", bookmark.format.name)
+                    .put("paragraphIndex", bookmark.paragraphIndex)
+                    .put("locatorJson", bookmark.locatorJson)
+                    .put("title", bookmark.title)
+                    .put("progress", bookmark.progress)
+                    .put("createdAt", bookmark.createdAt),
+            )
+        }
+        root.put(sourceId, array)
+        preferences.edit { putString(KEY_BOOKMARKS, root.toString()) }
+    }
+
+    fun removeBookmarks(sourceId: String) {
+        val root = runCatching {
+            JSONObject(preferences.getString(KEY_BOOKMARKS, null) ?: "{}")
+        }.getOrElse { JSONObject() }
+        root.remove(sourceId)
+        preferences.edit { putString(KEY_BOOKMARKS, root.toString()) }
     }
 
     private fun saveHistory(entries: List<EbookHistoryEntry>) {
@@ -171,5 +320,9 @@ class EbookPreferences(context: Context) {
         const val KEY_HISTORY = "history"
         const val KEY_POSITIONS = "positions"
         const val KEY_SETTINGS = "settings"
+        const val KEY_BOOKMARKS = "bookmarks"
     }
 }
+
+internal const val MAX_EBOOK_BOOKMARKS_PER_BOOK = 100
+private const val EPUB_BOOKMARK_PROGRESSION_BUCKETS = 10_000

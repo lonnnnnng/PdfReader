@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
+import kotlin.math.roundToInt
 import org.json.JSONObject
 
 enum class EbookFormat {
@@ -52,6 +53,35 @@ internal fun txtReadingProgress(index: Int, paragraphCount: Int): Float =
 
 internal fun normalizedEbookProgress(progress: Double?): Float? =
     progress?.takeIf(Double::isFinite)?.toFloat()?.coerceIn(0f, 1f)
+
+internal fun txtBookmarkTitle(
+    chapterTitle: String?,
+    paragraph: String,
+    paragraphIndex: Int,
+): String {
+    val chapter = chapterTitle
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() && it != "正文" }
+    val excerpt = paragraph.compactBookmarkText().ellipsizeBookmarkText(TXT_BOOKMARK_EXCERPT_CHARS)
+    // long: 同一章节往往会保存多个位置，标题带正文片段后才能在书签列表中快速区分。
+    return when {
+        chapter != null && excerpt.isNotEmpty() && excerpt != chapter ->
+            "$chapter · $excerpt".ellipsizeBookmarkText(MAX_BOOKMARK_TITLE_CHARS)
+        excerpt.isNotEmpty() -> excerpt
+        chapter != null -> chapter.ellipsizeBookmarkText(MAX_BOOKMARK_TITLE_CHARS)
+        else -> "第 ${paragraphIndex.coerceAtLeast(0) + 1} 段"
+    }
+}
+
+internal fun epubBookmarkTitle(chapterTitle: String?, progress: Float?): String {
+    val chapter = chapterTitle?.trim()?.takeIf(String::isNotEmpty) ?: "正文"
+    val percent = progress?.coerceIn(0f, 1f)?.let { (it * 100).roundToInt() }
+    return if (percent == null) {
+        chapter.ellipsizeBookmarkText(MAX_BOOKMARK_TITLE_CHARS)
+    } else {
+        "$chapter · $percent%".ellipsizeBookmarkText(MAX_BOOKMARK_TITLE_CHARS)
+    }
+}
 
 fun ebookReadingPositionFromJson(raw: String): EbookReadingPosition? = runCatching {
     val json = JSONObject(raw)
@@ -200,6 +230,14 @@ fun searchEbookParagraphs(
 }
 
 private const val MAX_TXT_TOC_TITLE_CHARS = 48
+private const val TXT_BOOKMARK_EXCERPT_CHARS = 42
+private const val MAX_BOOKMARK_TITLE_CHARS = 72
+
+private fun String.compactBookmarkText(): String =
+    replace(Regex("\\s+"), " ").trim()
+
+private fun String.ellipsizeBookmarkText(maxChars: Int): String =
+    if (length <= maxChars) this else take((maxChars - 1).coerceAtLeast(0)) + "…"
 
 private fun ebookSearchSnippet(text: String, matchStart: Int, matchLength: Int): String {
     val compact = text.replace(Regex("\\s+"), " ").trim()

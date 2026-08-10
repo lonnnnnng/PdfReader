@@ -104,6 +104,8 @@ class EbookViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var searchError by mutableStateOf<String?>(null)
         private set
+    var bookmarks by mutableStateOf<List<EbookBookmark>>(emptyList())
+        private set
 
     fun openUri(activity: Activity, uri: Uri) {
         val generation = beginOpenRequest()
@@ -212,6 +214,11 @@ class EbookViewModel(application: Application) : AndroidViewModel(application) {
                 // long: 文件复制和解码期间用户可能又选了另一本书，旧结果不能覆盖当前打开请求。
                 if (generation != openGeneration) return
                 activePositionSourceId = document.sourceId
+                bookmarks = loadBookmarksForDocument(
+                    sourceId = document.sourceId,
+                    format = EbookFormat.TXT,
+                    paragraphCount = document.paragraphs.size,
+                )
                 latestTxtParagraphIndex = document.initialParagraphIndex
                 latestEpubLocator = null
                 screen = EbookScreen.Txt(document)
@@ -252,6 +259,7 @@ class EbookViewModel(application: Application) : AndroidViewModel(application) {
                     ?.let { runCatching { Locator.fromJSON(JSONObject(it)) }.getOrNull() }
                 val title = publication.metadata.title.takeIf(String::isNotBlank) ?: source.title
                 activePositionSourceId = source.sourceId
+                bookmarks = loadBookmarksForDocument(source.sourceId, EbookFormat.EPUB)
                 latestTxtParagraphIndex = 0
                 latestEpubLocator = initialLocator
                 screen = EbookScreen.Epub(
@@ -273,6 +281,8 @@ class EbookViewModel(application: Application) : AndroidViewModel(application) {
         cancelOpenRequest()
         clearSearch()
         history = preferences.loadHistory()
+        bookmarks = emptyList()
+        activePositionSourceId = null
         screen = EbookScreen.Library
     }
 
@@ -289,6 +299,103 @@ class EbookViewModel(application: Application) : AndroidViewModel(application) {
             horizontalPaddingDp = newSettings.horizontalPaddingDp.coerceIn(8f, 40f),
         )
         preferences.saveSettings(settings)
+    }
+
+    fun toggleTxtBookmark(document: TxtEbookDocument, paragraphIndex: Int, chapterTitle: String): Boolean {
+        val safeIndex = clampTxtParagraphIndex(paragraphIndex, document.paragraphs.size)
+        val bookmark = EbookBookmark(
+            sourceId = document.sourceId,
+            format = EbookFormat.TXT,
+            paragraphIndex = safeIndex,
+            title = txtBookmarkTitle(
+                chapterTitle = chapterTitle,
+                paragraph = document.paragraphs.getOrElse(safeIndex) { "" },
+                paragraphIndex = safeIndex,
+            ),
+            progress = txtReadingProgress(safeIndex, document.paragraphs.size),
+            createdAt = System.currentTimeMillis(),
+        )
+        return toggleBookmark(bookmark)
+    }
+
+    fun findTxtBookmark(document: TxtEbookDocument, paragraphIndex: Int): EbookBookmark? {
+        val safeIndex = clampTxtParagraphIndex(paragraphIndex, document.paragraphs.size)
+        return bookmarks.firstOrNull {
+            it.sourceId == document.sourceId &&
+                it.format == EbookFormat.TXT &&
+                it.paragraphIndex == safeIndex
+        }
+    }
+
+    fun toggleEpubBookmark(document: EpubEbookDocument, locator: Locator, chapterTitle: String): Boolean {
+        val locatorJson = locator.toJSON().toString()
+        val locationKey = epubBookmarkLocationKey(locatorJson) ?: return false
+        val progress = normalizedEbookProgress(locator.locations.totalProgression)
+        val bookmark = EbookBookmark(
+            sourceId = document.sourceId,
+            format = EbookFormat.EPUB,
+            locatorJson = locatorJson,
+            locationKey = locationKey,
+            title = epubBookmarkTitle(chapterTitle, progress),
+            progress = progress,
+            createdAt = System.currentTimeMillis(),
+        )
+        return toggleBookmark(bookmark)
+    }
+
+    fun findEpubBookmark(document: EpubEbookDocument, locator: Locator?): EbookBookmark? {
+        val locatorJson = locator?.toJSON()?.toString() ?: return null
+        val locationKey = epubBookmarkLocationKey(locatorJson) ?: return null
+        val probeKey = ebookBookmarkKey(
+            EbookBookmark(
+                sourceId = document.sourceId,
+                format = EbookFormat.EPUB,
+                locatorJson = locatorJson,
+                locationKey = locationKey,
+                title = "",
+                createdAt = 0L,
+            ),
+        )
+        return bookmarks.firstOrNull { ebookBookmarkKey(it) == probeKey }
+    }
+
+    fun removeBookmark(bookmark: EbookBookmark) {
+        if (bookmark.sourceId != activePositionSourceId) return
+        val key = ebookBookmarkKey(bookmark)
+        val updated = bookmarks.filterNot { ebookBookmarkKey(it) == key }
+        if (updated.size == bookmarks.size) return
+        bookmarks = updated
+        preferences.saveBookmarks(bookmark.sourceId, updated)
+    }
+
+    private fun toggleBookmark(bookmark: EbookBookmark): Boolean {
+        if (bookmark.sourceId != activePositionSourceId) return false
+        val key = ebookBookmarkKey(bookmark)
+        val added = bookmarks.none { ebookBookmarkKey(it) == key }
+        val updated = toggledEbookBookmarks(bookmarks, bookmark)
+        bookmarks = updated
+        preferences.saveBookmarks(bookmark.sourceId, updated)
+        return added
+    }
+
+    private fun loadBookmarksForDocument(
+        sourceId: String,
+        format: EbookFormat,
+        paragraphCount: Int? = null,
+    ): List<EbookBookmark> {
+        val loaded = preferences.loadBookmarks(sourceId)
+        val valid = loaded.filter { bookmark ->
+            bookmark.format == format &&
+                (
+                    format != EbookFormat.TXT ||
+                        paragraphCount?.let { bookmark.paragraphIndex in 0 until it } == true
+                    )
+        }
+        if (valid.size != loaded.size) {
+            // long: 同一路径的文件可能被替换，清理旧格式和越界段落书签，避免点击后跳转崩溃。
+            preferences.saveBookmarks(sourceId, valid)
+        }
+        return valid
     }
 
     fun saveTxtPosition(document: TxtEbookDocument, paragraphIndex: Int) {

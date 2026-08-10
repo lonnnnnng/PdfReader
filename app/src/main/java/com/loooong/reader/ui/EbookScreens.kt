@@ -49,6 +49,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -130,6 +131,7 @@ import org.readium.r2.shared.ExperimentalReadiumApi
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.services.LocatorService
 import com.loooong.reader.EbookActivity
+import com.loooong.reader.EbookBookmark
 import com.loooong.reader.EpubEbookDocument
 import com.loooong.reader.EbookFormat
 import com.loooong.reader.EbookHistoryEntry
@@ -139,6 +141,7 @@ import com.loooong.reader.EbookScreen
 import com.loooong.reader.EpubTocEntry
 import com.loooong.reader.EbookViewModel
 import com.loooong.reader.TxtEbookDocument
+import com.loooong.reader.ebookBookmarkKey
 import com.loooong.reader.normalizeHttpsEbookUrl
 import com.loooong.reader.txtTableOfContents
 
@@ -409,7 +412,7 @@ private fun EbookHomeScreen(
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text("移除最近阅读") },
-            text = { Text("将移除书架记录、阅读进度和本地缓存，不会删除原始文件。") },
+            text = { Text("将移除书架记录、阅读进度、书签和本地缓存，不会删除原始文件。") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -517,7 +520,9 @@ private fun TxtReaderScreen(
     val progress = readerProgressForIndex(currentIndex, scrollPositionCount)
     val displayedProgress = pendingProgress ?: progress
     val displayedIndex = readerIndexForProgress(displayedProgress, scrollPositionCount)
+    val currentChapter = currentTxtChapterTitle(tableOfContents, currentIndex) ?: "正文"
     val displayedChapter = currentTxtChapterTitle(tableOfContents, displayedIndex) ?: "正文"
+    val currentBookmark = viewModel.findTxtBookmark(document, currentIndex)
 
     LaunchedEffect(listState, document.sourceId) {
         snapshotFlow { listState.firstVisibleItemIndex }
@@ -562,6 +567,11 @@ private fun TxtReaderScreen(
                             compact = compactToolbar,
                             onSearch = { panel = TxtPanel.SEARCH },
                             onToc = { panel = TxtPanel.TOC },
+                            onBookmarks = { panel = TxtPanel.BOOKMARKS },
+                            onBookmark = {
+                                viewModel.toggleTxtBookmark(document, currentIndex, currentChapter)
+                            },
+                            bookmarked = currentBookmark != null,
                             onSettings = { panel = TxtPanel.SETTINGS },
                             onToggleFullscreen = onToggleFullscreen,
                         )
@@ -679,6 +689,16 @@ private fun TxtReaderScreen(
             },
             onDismiss = { panel = null },
         )
+        TxtPanel.BOOKMARKS -> EbookBookmarksSheet(
+            bookmarks = viewModel.bookmarks.filter { it.format == EbookFormat.TXT },
+            currentBookmark = currentBookmark,
+            onSelect = {
+                panel = null
+                scope.launch { listState.animateScrollToItem(it.paragraphIndex) }
+            },
+            onDelete = viewModel::removeBookmark,
+            onDismiss = { panel = null },
+        )
         TxtPanel.SETTINGS -> EbookSettingsSheet(
             settings = viewModel.settings,
             onSettingsChange = viewModel::updateSettings,
@@ -688,7 +708,7 @@ private fun TxtReaderScreen(
     }
 }
 
-private enum class TxtPanel { SEARCH, TOC, SETTINGS }
+private enum class TxtPanel { SEARCH, TOC, BOOKMARKS, SETTINGS }
 
 @OptIn(
     ExperimentalReadiumApi::class,
@@ -729,6 +749,7 @@ private fun EpubReaderScreen(
     val progress = currentLocator?.locations?.totalProgression?.toFloat()?.coerceIn(0f, 1f) ?: 0f
     val displayedProgress = pendingProgress ?: progress
     val currentChapter = currentEpubTocEntry(document.tableOfContents, currentLocator)
+    val currentBookmark = viewModel.findEpubBookmark(document, currentLocator)
 
     if (activity != null && containerReady && !inspectionMode) {
         DisposableEffect(document.sourceId, activity, containerReady, mountAttempt) {
@@ -837,6 +858,13 @@ private fun EpubReaderScreen(
                             compact = compactToolbar,
                             onSearch = { panel = EpubPanel.SEARCH },
                             onToc = { panel = EpubPanel.TOC },
+                            onBookmarks = { panel = EpubPanel.BOOKMARKS },
+                            onBookmark = {
+                                currentLocator?.let {
+                                    viewModel.toggleEpubBookmark(document, it, currentChapter?.title ?: "正文")
+                                }
+                            },
+                            bookmarked = currentBookmark != null,
                             onSettings = { panel = EpubPanel.SETTINGS },
                             onToggleFullscreen = onToggleFullscreen,
                         )
@@ -998,6 +1026,23 @@ private fun EpubReaderScreen(
             },
             onDismiss = { panel = null },
         )
+        EpubPanel.BOOKMARKS -> EbookBookmarksSheet(
+            bookmarks = viewModel.bookmarks.filter { it.format == EbookFormat.EPUB },
+            currentBookmark = currentBookmark,
+            onSelect = {
+                val locator = it.locatorJson?.let { json ->
+                    runCatching { Locator.fromJSON(org.json.JSONObject(json)) }.getOrNull()
+                }
+                if (locator == null) {
+                    scope.launch { snackbarHostState.showSnackbar("该书签位置已失效，可以删除后重新添加") }
+                } else {
+                    panel = null
+                    navigator?.go(locator)
+                }
+            },
+            onDelete = viewModel::removeBookmark,
+            onDismiss = { panel = null },
+        )
         EpubPanel.SETTINGS -> EbookSettingsSheet(
             settings = viewModel.settings,
             onSettingsChange = viewModel::updateSettings,
@@ -1007,16 +1052,20 @@ private fun EpubReaderScreen(
     }
 }
 
-private enum class EpubPanel { SEARCH, TOC, SETTINGS }
+private enum class EpubPanel { SEARCH, TOC, BOOKMARKS, SETTINGS }
 
 @Composable
 private fun EbookReaderToolbarActions(
     compact: Boolean,
     onSearch: () -> Unit,
     onToc: () -> Unit,
+    onBookmarks: () -> Unit,
+    onBookmark: () -> Unit,
+    bookmarked: Boolean,
     onSettings: () -> Unit,
     onToggleFullscreen: () -> Unit,
 ) {
+    val actionIconColor = LocalContentColor.current
     IconButton(onClick = onSearch) {
         Icon(TablerIcons.Search, contentDescription = "搜索正文")
     }
@@ -1031,11 +1080,27 @@ private fun EbookReaderToolbarActions(
                 onDismissRequest = { menuExpanded = false },
             ) {
                 DropdownMenuItem(
-                    text = { Text("打开目录") },
+                    text = { Text(if (bookmarked) "取消当前书签" else "添加当前书签") },
                     leadingIcon = { Icon(TablerIcons.Bookmarks, contentDescription = null) },
                     onClick = {
                         menuExpanded = false
+                        onBookmark()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("打开目录") },
+                    leadingIcon = { Icon(TablerIcons.FileText, contentDescription = null) },
+                    onClick = {
+                        menuExpanded = false
                         onToc()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("打开书签") },
+                    leadingIcon = { Icon(TablerIcons.Book, contentDescription = null) },
+                    onClick = {
+                        menuExpanded = false
+                        onBookmarks()
                     },
                 )
                 DropdownMenuItem(
@@ -1058,7 +1123,17 @@ private fun EbookReaderToolbarActions(
         }
     } else {
         IconButton(onClick = onToc) {
-            Icon(TablerIcons.Bookmarks, contentDescription = "打开目录")
+            Icon(TablerIcons.FileText, contentDescription = "打开目录")
+        }
+        IconButton(onClick = onBookmark) {
+            Icon(
+                TablerIcons.Bookmarks,
+                contentDescription = if (bookmarked) "取消当前书签" else "添加当前书签",
+                tint = if (bookmarked) MaterialTheme.colorScheme.primary else actionIconColor,
+            )
+        }
+        IconButton(onClick = onBookmarks) {
+            Icon(TablerIcons.Book, contentDescription = "打开书签")
         }
         IconButton(onClick = onSettings) {
             Icon(TablerIcons.Settings, contentDescription = "阅读设置")
@@ -1316,6 +1391,131 @@ private fun EpubTocSheet(
             }
             Spacer(Modifier.height(12.dp))
         }
+    }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun EbookBookmarksSheet(
+    bookmarks: List<EbookBookmark>,
+    currentBookmark: EbookBookmark?,
+    onSelect: (EbookBookmark) -> Unit,
+    onDelete: (EbookBookmark) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var pendingDelete by remember { mutableStateOf<EbookBookmark?>(null) }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
+            EbookSheetHeader("书签（${bookmarks.size}）", onDismiss)
+            if (bookmarks.isEmpty()) {
+                EbookSheetEmptyMessage("还没有书签，阅读时点击书签图标即可添加")
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
+                ) {
+                    items(bookmarks, key = ::ebookBookmarkKey) { bookmark ->
+                        val isCurrent = bookmark == currentBookmark
+                        val progressText = bookmark.progress
+                            ?.let { " · ${(it * 100).roundToInt()}%" }
+                            .orEmpty()
+                        val supportingText = when (bookmark.format) {
+                            EbookFormat.TXT -> "TXT · 第 ${bookmark.paragraphIndex + 1} 段$progressText"
+                            EbookFormat.EPUB -> "EPUB$progressText"
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (isCurrent) {
+                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                    } else {
+                                        MaterialTheme.colorScheme.surfaceContainerLow
+                                    },
+                                )
+                                .padding(start = 18.dp, end = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .semantics { selected = isCurrent }
+                                    .clickable(role = Role.Button) { onSelect(bookmark) }
+                                    .padding(vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    TablerIcons.Bookmarks,
+                                    contentDescription = null,
+                                    tint = if (isCurrent) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                )
+                                Spacer(Modifier.width(14.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        bookmark.title,
+                                        color = if (isCurrent) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurface
+                                        },
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        supportingText,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                if (isCurrent) {
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("当前", color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                            IconButton(onClick = { pendingDelete = bookmark }) {
+                                Icon(
+                                    TablerIcons.Trash,
+                                    contentDescription = "删除书签：${bookmark.title}",
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+
+    pendingDelete?.let { bookmark ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("删除书签") },
+            text = {
+                Text(
+                    "确定删除“${bookmark.title}”吗？删除后不会影响当前阅读进度。",
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDelete = null
+                        onDelete(bookmark)
+                    },
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("取消") }
+            },
+        )
     }
 }
 

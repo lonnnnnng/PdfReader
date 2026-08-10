@@ -5,6 +5,7 @@ import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -12,6 +13,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +36,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -60,6 +63,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -136,6 +140,7 @@ import com.loooong.reader.EpubEbookDocument
 import com.loooong.reader.EbookFormat
 import com.loooong.reader.EbookHistoryEntry
 import com.loooong.reader.EbookPageTheme
+import com.loooong.reader.EbookPageTurn
 import com.loooong.reader.EbookReaderSettings
 import com.loooong.reader.EbookScreen
 import com.loooong.reader.EpubTocEntry
@@ -154,6 +159,9 @@ fun EbookApp(
     onChooseFile: () -> Unit,
 ) {
     var fullscreen by rememberSaveable { mutableStateOf(false) }
+    val screen = viewModel.screen
+    val keepScreenOn = viewModel.settings.keepScreenOn &&
+        (screen is EbookScreen.Txt || screen is EbookScreen.Epub)
 
     LaunchedEffect(initialUri, restoreHistory) {
         if (initialUri != null && viewModel.screen is EbookScreen.Library) {
@@ -181,6 +189,20 @@ fun EbookApp(
         }
     }
 
+    DisposableEffect(activity, keepScreenOn) {
+        if (keepScreenOn) {
+            activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            // long: 离开正文或销毁电子书页面后立即恢复系统休眠策略，避免书架停留时继续耗电。
+            if (keepScreenOn) {
+                activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+    }
+
     BackHandler {
         if (fullscreen) {
             fullscreen = false
@@ -193,7 +215,7 @@ fun EbookApp(
         }
     }
 
-    when (val screen = viewModel.screen) {
+    when (screen) {
         EbookScreen.Library -> EbookHomeScreen(
             history = viewModel.history,
             onChooseFile = onChooseFile,
@@ -493,6 +515,7 @@ private fun TxtReaderScreen(
     onBack: () -> Unit,
 ) {
     val compactToolbar = LocalConfiguration.current.screenWidthDp < 360
+    val activity = LocalContext.current as? EbookActivity
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = viewModel.currentTxtPosition(document).coerceIn(
             0,
@@ -523,6 +546,30 @@ private fun TxtReaderScreen(
     val currentChapter = currentTxtChapterTitle(tableOfContents, currentIndex) ?: "正文"
     val displayedChapter = currentTxtChapterTitle(tableOfContents, displayedIndex) ?: "正文"
     val currentBookmark = viewModel.findTxtBookmark(document, currentIndex)
+
+    DisposableEffect(
+        activity,
+        document.sourceId,
+        viewModel.settings.volumeKeyNavigation,
+        panel,
+    ) {
+        val unregister = if (
+            activity != null &&
+            viewModel.settings.volumeKeyNavigation &&
+            panel == null
+        ) {
+            activity.registerVolumePageTurnHandler { pageTurn ->
+                scope.launch {
+                    listState.animateScrollBy(
+                        txtPageTurnDistance(listState.layoutInfo.viewportSize.height, pageTurn),
+                    )
+                }
+            }
+        } else {
+            null
+        }
+        onDispose { unregister?.invoke() }
+    }
 
     LaunchedEffect(listState, document.sourceId) {
         snapshotFlow { listState.firstVisibleItemIndex }
@@ -724,7 +771,9 @@ private fun EpubReaderScreen(
     onBack: () -> Unit,
 ) {
     val compactToolbar = LocalConfiguration.current.screenWidthDp < 360
-    val activity = LocalContext.current as? FragmentActivity
+    val context = LocalContext.current
+    val activity = context as? FragmentActivity
+    val ebookActivity = context as? EbookActivity
     val containerId = remember { com.loooong.reader.R.id.epub_navigator_container }
     var navigator by remember(document.sourceId) { mutableStateOf<EpubNavigatorFragment?>(null) }
     var currentLocator by remember(document.sourceId) {
@@ -750,6 +799,32 @@ private fun EpubReaderScreen(
     val displayedProgress = pendingProgress ?: progress
     val currentChapter = currentEpubTocEntry(document.tableOfContents, currentLocator)
     val currentBookmark = viewModel.findEpubBookmark(document, currentLocator)
+
+    DisposableEffect(
+        ebookActivity,
+        navigator,
+        document.sourceId,
+        viewModel.settings.volumeKeyNavigation,
+        panel,
+    ) {
+        val activeNavigator = navigator
+        val unregister = if (
+            ebookActivity != null &&
+            activeNavigator != null &&
+            viewModel.settings.volumeKeyNavigation &&
+            panel == null
+        ) {
+            ebookActivity.registerVolumePageTurnHandler { pageTurn ->
+                when (pageTurn) {
+                    EbookPageTurn.BACKWARD -> activeNavigator.goBackward()
+                    EbookPageTurn.FORWARD -> activeNavigator.goForward()
+                }
+            }
+        } else {
+            null
+        }
+        onDispose { unregister?.invoke() }
+    }
 
     if (activity != null && containerReady && !inspectionMode) {
         DisposableEffect(document.sourceId, activity, containerReady, mountAttempt) {
@@ -1283,20 +1358,36 @@ private fun TxtTocSheet(
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var query by rememberSaveable { mutableStateOf("") }
     val currentChapterIndex = entries.lastOrNull { it.first <= currentIndex }?.first
-    val currentEntryIndex = entries.indexOfFirst { it.first == currentChapterIndex }.coerceAtLeast(0)
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = currentEntryIndex)
+    val filteredEntries = remember(entries, query) {
+        filterEbookTocEntries(entries, query) { it.second }
+    }
+    val currentEntryIndex = filteredEntries.indexOfFirst { it.first == currentChapterIndex }.coerceAtLeast(0)
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = if (query.isBlank()) currentEntryIndex else 0,
+    )
+    // long: 搜索时从首个结果开始，清空条件后回到当前章节，避免用户在长目录中丢失阅读位置。
+    LaunchedEffect(query, filteredEntries.size, currentEntryIndex) {
+        if (filteredEntries.isNotEmpty()) {
+            listState.scrollToItem(if (query.isBlank()) currentEntryIndex else 0)
+        }
+    }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
-            EbookSheetHeader("目录", onDismiss)
-            if (entries.isEmpty()) {
-                EbookSheetEmptyMessage("TXT 未提供章节目录")
-            } else {
-                LazyColumn(
+            EbookSheetHeader("目录（${entries.size}）", onDismiss)
+            when {
+                entries.isEmpty() -> EbookSheetEmptyMessage("TXT 未提供章节目录")
+                else -> EbookTocSearchField(query = query, onQueryChange = { query = it })
+            }
+            when {
+                entries.isEmpty() -> Unit
+                filteredEntries.isEmpty() -> EbookSheetEmptyMessage("没有找到匹配章节")
+                else -> LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxWidth().height(400.dp),
                 ) {
-                    items(entries, key = { it.first }) { (index, title) ->
+                    items(filteredEntries, key = { it.first }) { (index, title) ->
                         val isCurrent = index == currentChapterIndex
                         ListItem(
                             headlineContent = {
@@ -1341,22 +1432,38 @@ private fun EpubTocSheet(
     onSelect: (Locator) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var query by rememberSaveable { mutableStateOf("") }
     val currentEntry = currentEpubTocEntry(entries, currentLocator)
-    val currentEntryIndex = entries.indexOfFirst {
+    val filteredEntries = remember(entries, query) {
+        filterEbookTocEntries(entries, query, EpubTocEntry::title)
+    }
+    val currentEntryIndex = filteredEntries.indexOfFirst {
         it.title == currentEntry?.title && it.locator.href == currentEntry?.locator?.href
     }.coerceAtLeast(0)
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = currentEntryIndex)
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = if (query.isBlank()) currentEntryIndex else 0,
+    )
+    // long: EPUB 目录过滤后仍保持与 TXT 一致的定位规则，清空搜索即可重新看到当前章节高亮。
+    LaunchedEffect(query, filteredEntries.size, currentEntryIndex) {
+        if (filteredEntries.isNotEmpty()) {
+            listState.scrollToItem(if (query.isBlank()) currentEntryIndex else 0)
+        }
+    }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
-            EbookSheetHeader("目录", onDismiss)
-            if (entries.isEmpty()) {
-                EbookSheetEmptyMessage("这本 EPUB 没有目录信息")
-            } else {
-                LazyColumn(
+            EbookSheetHeader("目录（${entries.size}）", onDismiss)
+            when {
+                entries.isEmpty() -> EbookSheetEmptyMessage("这本 EPUB 没有目录信息")
+                else -> EbookTocSearchField(query = query, onQueryChange = { query = it })
+            }
+            when {
+                entries.isEmpty() -> Unit
+                filteredEntries.isEmpty() -> EbookSheetEmptyMessage("没有找到匹配章节")
+                else -> LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxWidth().height(420.dp),
                 ) {
-                    items(entries) { entry ->
+                    items(filteredEntries) { entry ->
                         val isCurrent = entry.title == currentEntry?.title &&
                             entry.locator.href == currentEntry.locator.href
                         ListItem(
@@ -1392,6 +1499,31 @@ private fun EpubTocSheet(
             Spacer(Modifier.height(12.dp))
         }
     }
+}
+
+@Composable
+private fun EbookTocSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+        singleLine = true,
+        label = { Text("搜索章节") },
+        leadingIcon = { Icon(TablerIcons.Search, contentDescription = null) },
+        trailingIcon = if (query.isNotEmpty()) {
+            {
+                IconButton(onClick = { onQueryChange("") }) {
+                    Icon(TablerIcons.X, contentDescription = "清除目录搜索")
+                }
+            }
+        } else {
+            null
+        },
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+    )
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -1600,8 +1732,53 @@ private fun EbookSettingsSheet(
                     }
                 }
             }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Text("阅读控制", style = MaterialTheme.typography.labelLarge)
+            EbookSettingSwitch(
+                title = "阅读时保持屏幕常亮",
+                description = "仅在 TXT 或 EPUB 正文页生效，离开阅读页后恢复系统休眠",
+                checked = settings.keepScreenOn,
+                onCheckedChange = { onSettingsChange(settings.copy(keepScreenOn = it)) },
+            )
+            EbookSettingSwitch(
+                title = "使用音量键翻阅",
+                description = "音量上键向前、下键向后；打开阅读面板时仍用于调节音量",
+                checked = settings.volumeKeyNavigation,
+                onCheckedChange = { onSettingsChange(settings.copy(volumeKeyNavigation = it)) },
+            )
             Spacer(Modifier.height(8.dp))
         }
+    }
+}
+
+@Composable
+private fun EbookSettingSwitch(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = checked,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            )
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 
@@ -1746,8 +1923,29 @@ internal fun readerScrollablePositionCount(itemCount: Int, visibleItemCount: Int
     return itemCount - safeVisibleCount + 1
 }
 
+internal fun txtPageTurnDistance(viewportHeight: Int, pageTurn: EbookPageTurn): Float {
+    val distance = viewportHeight.coerceAtLeast(0) * TXT_PAGE_TURN_VIEWPORT_FRACTION
+    return if (pageTurn == EbookPageTurn.FORWARD) distance else -distance
+}
+
 internal fun currentTxtChapterTitle(entries: List<Pair<Int, String>>, currentIndex: Int): String? =
     entries.lastOrNull { it.first <= currentIndex }?.second
+
+internal fun <T> filterEbookTocEntries(
+    entries: List<T>,
+    rawQuery: String,
+    titleOf: (T) -> String,
+): List<T> {
+    val tokens = rawQuery.trim()
+        .split(EBOOK_TOC_QUERY_WHITESPACE_REGEX)
+        .filter(String::isNotEmpty)
+    if (tokens.isEmpty()) return entries
+    // long: 所有关键词都命中才保留章节，用户可用“章节号 关键词”组合快速缩小目录范围。
+    return entries.filter { entry ->
+        val title = titleOf(entry)
+        tokens.all { token -> title.contains(token, ignoreCase = true) }
+    }
+}
 
 private fun currentEpubTocEntry(entries: List<EpubTocEntry>, locator: Locator?): EpubTocEntry? {
     locator ?: return null
@@ -1824,6 +2022,8 @@ private suspend fun EpubNavigatorFragment.lockHorizontalViewport() {
 private const val EPUB_NAVIGATOR_TAG = "ebook_epub_navigator"
 private const val EPUB_READER_LOG_TAG = "EbookReader"
 private const val POSITION_SAVE_DEBOUNCE_MS = 700L
+private const val TXT_PAGE_TURN_VIEWPORT_FRACTION = 0.88f
+private val EBOOK_TOC_QUERY_WHITESPACE_REGEX = Regex("\\s+")
 
 private const val EPUB_HORIZONTAL_LOCK_SCRIPT = """
     (() => {

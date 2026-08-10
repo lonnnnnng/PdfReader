@@ -293,11 +293,7 @@ class EbookViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateSettings(newSettings: EbookReaderSettings) {
-        settings = newSettings.copy(
-            fontSizeSp = newSettings.fontSizeSp.coerceIn(14f, 32f),
-            lineHeight = newSettings.lineHeight.coerceIn(1.2f, 2.2f),
-            horizontalPaddingDp = newSettings.horizontalPaddingDp.coerceIn(8f, 40f),
-        )
+        settings = normalizedEbookReaderSettings(newSettings)
         preferences.saveSettings(settings)
     }
 

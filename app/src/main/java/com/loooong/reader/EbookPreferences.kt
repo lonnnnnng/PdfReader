@@ -18,7 +18,56 @@ data class EbookReaderSettings(
     val lineHeight: Float = 1.55f,
     val horizontalPaddingDp: Float = 20f,
     val pageTheme: EbookPageTheme = EbookPageTheme.SYSTEM,
+    val keepScreenOn: Boolean = false,
+    val volumeKeyNavigation: Boolean = false,
 )
+
+internal fun normalizedEbookReaderSettings(settings: EbookReaderSettings): EbookReaderSettings {
+    val defaults = EbookReaderSettings()
+    return settings.copy(
+        fontSizeSp = settings.fontSizeSp.takeIf { it.isFinite() }
+            ?.coerceIn(14f, 32f)
+            ?: defaults.fontSizeSp,
+        lineHeight = settings.lineHeight.takeIf { it.isFinite() }
+            ?.coerceIn(1.2f, 2.2f)
+            ?: defaults.lineHeight,
+        horizontalPaddingDp = settings.horizontalPaddingDp.takeIf { it.isFinite() }
+            ?.coerceIn(8f, 40f)
+            ?: defaults.horizontalPaddingDp,
+    )
+}
+
+internal fun ebookReaderSettingsFromJson(raw: String?): EbookReaderSettings {
+    val defaults = EbookReaderSettings()
+    val json = runCatching { JSONObject(raw ?: "{}") }.getOrElse { JSONObject() }
+    return normalizedEbookReaderSettings(
+        EbookReaderSettings(
+            fontSizeSp = json.optDouble("fontSizeSp", defaults.fontSizeSp.toDouble()).toFloat(),
+            lineHeight = json.optDouble("lineHeight", defaults.lineHeight.toDouble()).toFloat(),
+            horizontalPaddingDp = json.optDouble(
+                "horizontalPaddingDp",
+                defaults.horizontalPaddingDp.toDouble(),
+            ).toFloat(),
+            pageTheme = runCatching {
+                EbookPageTheme.valueOf(json.optString("pageTheme", defaults.pageTheme.name))
+            }.getOrDefault(defaults.pageTheme),
+            keepScreenOn = json.optBoolean("keepScreenOn", defaults.keepScreenOn),
+            volumeKeyNavigation = json.optBoolean(
+                "volumeKeyNavigation",
+                defaults.volumeKeyNavigation,
+            ),
+        ),
+    )
+}
+
+internal fun EbookReaderSettings.toJson(): String = JSONObject()
+    .put("fontSizeSp", fontSizeSp)
+    .put("lineHeight", lineHeight)
+    .put("horizontalPaddingDp", horizontalPaddingDp)
+    .put("pageTheme", pageTheme.name)
+    .put("keepScreenOn", keepScreenOn)
+    .put("volumeKeyNavigation", volumeKeyNavigation)
+    .toString()
 
 enum class EbookSourceKind {
     LOCAL,
@@ -293,26 +342,14 @@ class EbookPreferences(context: Context) {
     }
 
     fun loadSettings(): EbookReaderSettings {
-        val json = runCatching {
-            JSONObject(preferences.getString(KEY_SETTINGS, null) ?: "{}")
-        }.getOrElse { JSONObject() }
-        return EbookReaderSettings(
-            fontSizeSp = json.optDouble("fontSizeSp", 18.0).toFloat().coerceIn(14f, 32f),
-            lineHeight = json.optDouble("lineHeight", 1.55).toFloat().coerceIn(1.2f, 2.2f),
-            horizontalPaddingDp = json.optDouble("horizontalPaddingDp", 20.0).toFloat().coerceIn(8f, 40f),
-            pageTheme = runCatching {
-                EbookPageTheme.valueOf(json.optString("pageTheme", EbookPageTheme.SYSTEM.name))
-            }.getOrDefault(EbookPageTheme.SYSTEM),
-        )
+        return ebookReaderSettingsFromJson(preferences.getString(KEY_SETTINGS, null))
     }
 
     fun saveSettings(settings: EbookReaderSettings) {
-        val json = JSONObject()
-            .put("fontSizeSp", settings.fontSizeSp)
-            .put("lineHeight", settings.lineHeight)
-            .put("horizontalPaddingDp", settings.horizontalPaddingDp)
-            .put("pageTheme", settings.pageTheme.name)
-        preferences.edit { putString(KEY_SETTINGS, json.toString()) }
+        // long: 所有入口都通过同一归一化逻辑落盘，异常值不会在下次冷启动时重新污染阅读界面。
+        preferences.edit {
+            putString(KEY_SETTINGS, normalizedEbookReaderSettings(settings).toJson())
+        }
     }
 
     private companion object {

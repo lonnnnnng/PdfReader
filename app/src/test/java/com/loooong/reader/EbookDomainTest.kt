@@ -1,5 +1,7 @@
 package com.loooong.reader
 
+import android.view.KeyEvent
+import com.loooong.reader.ui.txtPageTurnDistance
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.zip.ZipEntry
@@ -133,6 +135,47 @@ class EbookDomainTest {
         assertEquals(0f, normalizedEbookProgress(-1.0))
         assertEquals(1f, normalizedEbookProgress(2.0))
         assertNull(normalizedEbookProgress(Double.NaN))
+    }
+
+    @Test
+    fun readerSettingsRoundTripLongReadingControlsAndRepairInvalidValues() {
+        val settings = EbookReaderSettings(
+            fontSizeSp = 24f,
+            lineHeight = 1.8f,
+            horizontalPaddingDp = 28f,
+            pageTheme = EbookPageTheme.SEPIA,
+            keepScreenOn = true,
+            volumeKeyNavigation = true,
+        )
+
+        assertEquals(settings, ebookReaderSettingsFromJson(settings.toJson()))
+
+        val repaired = ebookReaderSettingsFromJson(
+            JSONObject()
+                .put("fontSizeSp", 99)
+                .put("lineHeight", -5)
+                .put("horizontalPaddingDp", 999)
+                .put("pageTheme", "BROKEN")
+                .put("keepScreenOn", true)
+                .put("volumeKeyNavigation", true)
+                .toString(),
+        )
+        assertEquals(32f, repaired.fontSizeSp)
+        assertEquals(1.2f, repaired.lineHeight)
+        assertEquals(40f, repaired.horizontalPaddingDp)
+        assertEquals(EbookPageTheme.SYSTEM, repaired.pageTheme)
+        assertEquals(true, repaired.keepScreenOn)
+        assertEquals(true, repaired.volumeKeyNavigation)
+        assertEquals(EbookReaderSettings(), ebookReaderSettingsFromJson("{broken"))
+    }
+
+    @Test
+    fun volumeKeysMapToSinglePageTurnsAndTxtUsesMostOfTheViewport() {
+        assertEquals(EbookPageTurn.BACKWARD, ebookPageTurnForKeyCode(KeyEvent.KEYCODE_VOLUME_UP))
+        assertEquals(EbookPageTurn.FORWARD, ebookPageTurnForKeyCode(KeyEvent.KEYCODE_VOLUME_DOWN))
+        assertNull(ebookPageTurnForKeyCode(KeyEvent.KEYCODE_BACK))
+        assertEquals(-880f, txtPageTurnDistance(1_000, EbookPageTurn.BACKWARD), 0.001f)
+        assertEquals(880f, txtPageTurnDistance(1_000, EbookPageTurn.FORWARD), 0.001f)
     }
 
     @Test

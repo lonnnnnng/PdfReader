@@ -43,4 +43,22 @@ class EbookProgressMappingTest {
         assertEquals("第一章", currentTxtChapterTitle(entries, 9))
         assertEquals("第二章", currentTxtChapterTitle(entries, 99))
     }
+
+    @Test
+    fun tableOfContentsSearchMatchesChineseEnglishAndMultipleKeywords() {
+        val entries = listOf(
+            "序章 雨夜",
+            "第一章 星光",
+            "Chapter 12 Across the Sea",
+            "尾声",
+        )
+
+        assertEquals(entries, filterEbookTocEntries(entries, "  ") { it })
+        assertEquals(listOf("第一章 星光"), filterEbookTocEntries(entries, "第一 星光") { it })
+        assertEquals(
+            listOf("Chapter 12 Across the Sea"),
+            filterEbookTocEntries(entries, "chapter SEA") { it },
+        )
+        assertEquals(emptyList<String>(), filterEbookTocEntries(entries, "不存在") { it })
+    }
 }

@@ -101,12 +101,17 @@ class EbookDomainTest {
                 "第 1 章 起程",
                 "第一章第一段。这里是正文，不应进入目录。",
                 "Chapter IX The Mock Turtle's Story",
+                "Chapter One: The Beginning",
+                "【第二章：雨夜】",
+                "（第三章）",
+                "3、回到故乡",
+                "2026-08-13 日记",
                 "Chapter house is a phrase in the body.",
                 "尾声",
             ),
         )
 
-        assertEquals(listOf(0, 2, 4, 6), headings.map { it.first })
+        assertEquals(listOf(0, 2, 4, 5, 6, 7, 8, 11), headings.map { it.first })
     }
 
     @Test
@@ -115,11 +120,16 @@ class EbookDomainTest {
             sourceId = "content://books/three-body",
             format = EbookFormat.TXT,
             paragraphIndex = 42,
+            scrollOffset = 128,
             locatorJson = null,
             updatedAt = 1234L,
         )
 
         assertEquals(position, ebookReadingPositionFromJson(position.toJson()))
+        assertEquals(
+            0,
+            ebookReadingPositionFromJson(position.toJson().replace("\"scrollOffset\":128,", ""))?.scrollOffset,
+        )
         assertNull(ebookReadingPositionFromJson("{broken"))
     }
 
@@ -217,10 +227,12 @@ class EbookDomainTest {
             sourceId = "book",
             format = EbookFormat.TXT,
             paragraphIndex = 1,
+            scrollOffset = 12,
             title = "第一章",
             createdAt = 1L,
         )
         val txtSecond = txtFirst.copy(paragraphIndex = 2)
+        val txtSameParagraphLater = txtFirst.copy(scrollOffset = 48)
         val epub = EbookBookmark(
             sourceId = "book",
             format = EbookFormat.EPUB,
@@ -230,6 +242,7 @@ class EbookDomainTest {
         )
 
         assertTrue(ebookBookmarkKey(txtFirst) != ebookBookmarkKey(txtSecond))
+        assertTrue(ebookBookmarkKey(txtFirst) != ebookBookmarkKey(txtSameParagraphLater))
         assertTrue(ebookBookmarkKey(txtFirst) != ebookBookmarkKey(epub))
         assertEquals(ebookBookmarkKey(epub), ebookBookmarkKey(epub.copy(title = "其他标题")))
     }

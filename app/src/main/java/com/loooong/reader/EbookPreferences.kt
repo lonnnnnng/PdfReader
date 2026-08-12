@@ -88,6 +88,7 @@ data class EbookBookmark(
     val sourceId: String,
     val format: EbookFormat,
     val paragraphIndex: Int = 0,
+    val scrollOffset: Int = 0,
     val locatorJson: String? = null,
     val locationKey: String? = null,
     val title: String,
@@ -97,7 +98,8 @@ data class EbookBookmark(
 
 internal fun ebookBookmarkKey(bookmark: EbookBookmark): String =
     when (bookmark.format) {
-        EbookFormat.TXT -> "${bookmark.sourceId}:TXT:${bookmark.paragraphIndex}"
+        EbookFormat.TXT ->
+            "${bookmark.sourceId}:TXT:${bookmark.paragraphIndex}:${bookmark.scrollOffset.coerceAtLeast(0)}"
         EbookFormat.EPUB -> {
             val location = bookmark.locationKey
                 ?: epubBookmarkLocationKey(bookmark.locatorJson)
@@ -248,6 +250,8 @@ class EbookPreferences(context: Context) {
                         sourceId = sourceId,
                         format = format,
                         paragraphIndex = item.optInt("paragraphIndex", 0).coerceAtLeast(0),
+                        // long: 0 是旧书签的兼容值，也能在用户更换字号后作为安全的段首回退。
+                        scrollOffset = item.optInt("scrollOffset", 0).coerceAtLeast(0),
                         locatorJson = locatorJson,
                         locationKey = if (format == EbookFormat.EPUB) {
                             epubBookmarkLocationKey(locatorJson)
@@ -290,6 +294,7 @@ class EbookPreferences(context: Context) {
                 JSONObject()
                     .put("format", bookmark.format.name)
                     .put("paragraphIndex", bookmark.paragraphIndex)
+                    .put("scrollOffset", bookmark.scrollOffset.coerceAtLeast(0))
                     .put("locatorJson", bookmark.locatorJson)
                     .put("title", bookmark.title)
                     .put("progress", bookmark.progress)

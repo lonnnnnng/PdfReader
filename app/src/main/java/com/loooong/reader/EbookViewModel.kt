@@ -50,6 +50,7 @@ data class TxtEbookDocument(
     val title: String,
     val paragraphs: List<String>,
     val initialParagraphIndex: Int,
+    val initialScrollOffset: Int = 0,
 )
 
 @OptIn(ExperimentalReadiumApi::class)
@@ -88,6 +89,7 @@ class EbookViewModel(application: Application) : AndroidViewModel(application) {
     private var searchGeneration = 0L
     private var activePositionSourceId: String? = null
     private var latestTxtParagraphIndex = 0
+    private var latestTxtScrollOffset = 0
     private var latestEpubLocator: Locator? = null
 
     var screen by mutableStateOf<EbookScreen>(EbookScreen.Library)
@@ -203,6 +205,7 @@ class EbookViewModel(application: Application) : AndroidViewModel(application) {
                             paragraphs = paragraphs,
                             initialParagraphIndex = saved?.paragraphIndex
                                 ?.let { clampTxtParagraphIndex(it, paragraphs.size) } ?: 0,
+                            initialScrollOffset = saved?.scrollOffset?.coerceAtLeast(0) ?: 0,
                         )
                     }
                 }.getOrElse {
@@ -220,6 +223,7 @@ class EbookViewModel(application: Application) : AndroidViewModel(application) {
                     paragraphCount = document.paragraphs.size,
                 )
                 latestTxtParagraphIndex = document.initialParagraphIndex
+                latestTxtScrollOffset = document.initialScrollOffset
                 latestEpubLocator = null
                 screen = EbookScreen.Txt(document)
                 recordHistory(
@@ -297,12 +301,18 @@ class EbookViewModel(application: Application) : AndroidViewModel(application) {
         preferences.saveSettings(settings)
     }
 
-    fun toggleTxtBookmark(document: TxtEbookDocument, paragraphIndex: Int, chapterTitle: String): Boolean {
+    fun toggleTxtBookmark(
+        document: TxtEbookDocument,
+        paragraphIndex: Int,
+        scrollOffset: Int,
+        chapterTitle: String,
+    ): Boolean {
         val safeIndex = clampTxtParagraphIndex(paragraphIndex, document.paragraphs.size)
         val bookmark = EbookBookmark(
             sourceId = document.sourceId,
             format = EbookFormat.TXT,
             paragraphIndex = safeIndex,
+            scrollOffset = scrollOffset.coerceAtLeast(0),
             title = txtBookmarkTitle(
                 chapterTitle = chapterTitle,
                 paragraph = document.paragraphs.getOrElse(safeIndex) { "" },
@@ -314,12 +324,18 @@ class EbookViewModel(application: Application) : AndroidViewModel(application) {
         return toggleBookmark(bookmark)
     }
 
-    fun findTxtBookmark(document: TxtEbookDocument, paragraphIndex: Int): EbookBookmark? {
+    fun findTxtBookmark(
+        document: TxtEbookDocument,
+        paragraphIndex: Int,
+        scrollOffset: Int = 0,
+    ): EbookBookmark? {
         val safeIndex = clampTxtParagraphIndex(paragraphIndex, document.paragraphs.size)
+        val safeOffset = scrollOffset.coerceAtLeast(0)
         return bookmarks.firstOrNull {
             it.sourceId == document.sourceId &&
                 it.format == EbookFormat.TXT &&
-                it.paragraphIndex == safeIndex
+                it.paragraphIndex == safeIndex &&
+                it.scrollOffset == safeOffset
         }
     }
 
@@ -394,14 +410,19 @@ class EbookViewModel(application: Application) : AndroidViewModel(application) {
         return valid
     }
 
-    fun saveTxtPosition(document: TxtEbookDocument, paragraphIndex: Int) {
+    fun saveTxtPosition(document: TxtEbookDocument, paragraphIndex: Int, scrollOffset: Int = 0) {
         val safeIndex = clampTxtParagraphIndex(paragraphIndex, document.paragraphs.size)
-        if (activePositionSourceId == document.sourceId) latestTxtParagraphIndex = safeIndex
+        val safeOffset = scrollOffset.coerceAtLeast(0)
+        if (activePositionSourceId == document.sourceId) {
+            latestTxtParagraphIndex = safeIndex
+            latestTxtScrollOffset = safeOffset
+        }
         preferences.savePosition(
             EbookReadingPosition(
                 sourceId = document.sourceId,
                 format = EbookFormat.TXT,
                 paragraphIndex = safeIndex,
+                scrollOffset = safeOffset,
                 locatorJson = null,
                 updatedAt = System.currentTimeMillis(),
             ),
@@ -434,6 +455,9 @@ class EbookViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             document.initialParagraphIndex
         }
+
+    fun currentTxtScrollOffset(document: TxtEbookDocument): Int =
+        if (activePositionSourceId == document.sourceId) latestTxtScrollOffset else document.initialScrollOffset
 
     fun currentEpubLocator(document: EpubEbookDocument): Locator? =
         if (activePositionSourceId == document.sourceId) {

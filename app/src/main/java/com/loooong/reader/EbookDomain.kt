@@ -33,6 +33,7 @@ data class EbookReadingPosition(
     val sourceId: String,
     val format: EbookFormat,
     val paragraphIndex: Int,
+    val scrollOffset: Int = 0,
     val locatorJson: String?,
     val updatedAt: Long,
 ) {
@@ -40,6 +41,7 @@ data class EbookReadingPosition(
         .put("sourceId", sourceId)
         .put("format", format.name)
         .put("paragraphIndex", paragraphIndex)
+        .put("scrollOffset", scrollOffset.coerceAtLeast(0))
         .put("locatorJson", locatorJson)
         .put("updatedAt", updatedAt)
         .toString()
@@ -89,6 +91,8 @@ fun ebookReadingPositionFromJson(raw: String): EbookReadingPosition? = runCatchi
         sourceId = json.getString("sourceId"),
         format = EbookFormat.valueOf(json.getString("format")),
         paragraphIndex = json.optInt("paragraphIndex", 0).coerceAtLeast(0),
+        // long: 旧版本只保存段落索引，缺少偏移时从段首恢复，确保历史位置仍可读取。
+        scrollOffset = json.optInt("scrollOffset", 0).coerceAtLeast(0),
         locatorJson = json.optString("locatorJson").takeIf { it.isNotBlank() && it != "null" },
         updatedAt = json.optLong("updatedAt", 0L),
     )
@@ -206,7 +210,11 @@ fun splitTxtParagraphs(text: String): List<String> = text
 fun txtTableOfContents(paragraphs: List<String>): List<Pair<Int, String>> {
     val chapterPatterns = listOf(
         Regex("^第\\s*[0-9０-９一二三四五六七八九十百千万零〇两]+\\s*[章节回部卷篇](?:$|[\\s:：、.．-]+.{1,24}$)"),
-        Regex("^(?i:chapter)\\s+(?:\\d+|[IVXLCDM]+)(?:$|[\\s:：.．-]+.{1,32}$)"),
+        Regex("(?i)^chapter\\s+(?:\\d+|[IVXLCDM]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?:$|[\\s:：.．-]+.{1,32}$)"),
+        // long: 网文常用括号包住章节号，仍要求完整的“第 X 章”结构，避免把普通括号正文加入目录。
+        Regex("^[（(【\\[]\\s*第\\s*[0-9０-９一二三四五六七八九十百千万零〇两]+\\s*[章节回部卷篇](?:[\\s:：、.．-]+.{1,24})?[）)】\\]]$"),
+        // long: 纯数字章节标题必须用稳定的标题分隔符并带正文；不接受连字符，避免把日期误判为章节。
+        Regex("^\\d{1,4}[、.．:：]\\s*.{1,40}$"),
         Regex("^(?:序章|序幕|楔子|前言|尾声|结语|后记)(?:$|[\\s:：.．-]+.{1,24}$)"),
     )
     return paragraphs.mapIndexedNotNull { index, paragraph ->

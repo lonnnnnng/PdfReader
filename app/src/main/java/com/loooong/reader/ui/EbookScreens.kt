@@ -521,6 +521,7 @@ private fun TxtReaderScreen(
             0,
             (document.paragraphs.size - 1).coerceAtLeast(0),
         ),
+        initialFirstVisibleItemScrollOffset = viewModel.currentTxtScrollOffset(document),
     )
     val scope = rememberCoroutineScope()
     var panel by remember { mutableStateOf<TxtPanel?>(null) }
@@ -545,7 +546,11 @@ private fun TxtReaderScreen(
     val displayedIndex = readerIndexForProgress(displayedProgress, scrollPositionCount)
     val currentChapter = currentTxtChapterTitle(tableOfContents, currentIndex) ?: "正文"
     val displayedChapter = currentTxtChapterTitle(tableOfContents, displayedIndex) ?: "正文"
-    val currentBookmark = viewModel.findTxtBookmark(document, currentIndex)
+    val currentBookmark = viewModel.findTxtBookmark(
+        document,
+        currentIndex,
+        listState.firstVisibleItemScrollOffset,
+    )
 
     DisposableEffect(
         activity,
@@ -572,17 +577,23 @@ private fun TxtReaderScreen(
     }
 
     LaunchedEffect(listState, document.sourceId) {
-        snapshotFlow { listState.firstVisibleItemIndex }
+        snapshotFlow {
+            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        }
             .distinctUntilChanged()
             .collectLatest {
                 delay(POSITION_SAVE_DEBOUNCE_MS)
-                viewModel.saveTxtPosition(document, it)
+                viewModel.saveTxtPosition(document, it.first, it.second)
             }
     }
     DisposableEffect(document.sourceId) {
         onDispose {
             // long: 页面退出时立即补写最后可见段落，避免节流窗口内返回首页导致进度丢失。
-            viewModel.saveTxtPosition(document, latestPosition)
+            viewModel.saveTxtPosition(
+                document,
+                latestPosition,
+                listState.firstVisibleItemScrollOffset,
+            )
         }
     }
 
@@ -616,7 +627,12 @@ private fun TxtReaderScreen(
                             onToc = { panel = TxtPanel.TOC },
                             onBookmarks = { panel = TxtPanel.BOOKMARKS },
                             onBookmark = {
-                                viewModel.toggleTxtBookmark(document, currentIndex, currentChapter)
+                                viewModel.toggleTxtBookmark(
+                                    document,
+                                    currentIndex,
+                                    listState.firstVisibleItemScrollOffset,
+                                    currentChapter,
+                                )
                             },
                             bookmarked = currentBookmark != null,
                             onSettings = { panel = TxtPanel.SETTINGS },
@@ -741,7 +757,12 @@ private fun TxtReaderScreen(
             currentBookmark = currentBookmark,
             onSelect = {
                 panel = null
-                scope.launch { listState.animateScrollToItem(it.paragraphIndex) }
+                scope.launch {
+                    listState.animateScrollToItem(
+                        it.paragraphIndex.coerceIn(0, (document.paragraphs.size - 1).coerceAtLeast(0)),
+                        it.scrollOffset.coerceAtLeast(0),
+                    )
+                }
             },
             onDelete = viewModel::removeBookmark,
             onDismiss = { panel = null },

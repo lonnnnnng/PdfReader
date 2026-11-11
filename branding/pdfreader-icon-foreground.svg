@@ -1,8 +1,36 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
-  <path d="M70 24h12v35l-6-5-6 5z" fill="#F2B866"/>
-  <path d="M18 34c13-5 25-3 36 4v46c-10-7-22-9-36-5z" fill="#FFF9EF"/>
-  <path d="M54 38c11-7 23-9 36-4v45c-14-4-26-2-36 5z" fill="#FFF9EF"/>
-  <path d="M54 38v46" fill="none" stroke="#D6DDD7" stroke-width="1.8" stroke-linecap="round"/>
-  <path d="M25 45c8-2 15-1 22 2M25 54c8-2 15-1 22 2" fill="none" stroke="#B8C7BE" stroke-width="2.2" stroke-linecap="round"/>
-  <path d="M61 47c7-3 14-4 22-2M61 56c7-3 14-4 22-2" fill="none" stroke="#B8C7BE" stroke-width="2.2" stroke-linecap="round"/>
+  <title>PdfReader：PDF 文档与编辑笔</title>
+  <!-- long: 主体留在自适应图标安全区，圆形与方形遮罩共用同一构图。 -->
+  <defs>
+    <linearGradient id="paper" x1="32" y1="26" x2="71" y2="81" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFEF8"/>
+      <stop offset="1" stop-color="#E9F0E8"/>
+    </linearGradient>
+    <linearGradient id="fold" x1="59" y1="27" x2="72" y2="42" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A9CDBB"/>
+      <stop offset="1" stop-color="#D3E6D9"/>
+    </linearGradient>
+    <filter id="paper-shadow" x="-30%" y="-20%" width="160%" height="150%">
+      <feGaussianBlur stdDeviation="1.5"/>
+    </filter>
+  </defs>
+  <path d="M37 26H59L74 41V75Q74 81 68 81H37Q31 81 31 75V32Q31 26 37 26Z" fill="#062C20" opacity=".25" transform="translate(0 1.8)" filter="url(#paper-shadow)"/>
+  <path d="M37 26H59L74 41V75Q74 81 68 81H37Q31 81 31 75V32Q31 26 37 26Z" fill="url(#paper)"/>
+  <path d="M59 26V36Q59 41 64 41H74Z" fill="url(#fold)"/>
+  <!-- long: PDF 使用轮廓路径，保证桌面小图与构建机字体无关。 -->
+  <g fill="#174C3C" fill-rule="evenodd" transform="translate(7.4 7) scale(.8)">
+    <path d="M37 45H41.8C45 45 46.6 46.7 46.6 49.3S45 53.6 41.8 53.6H39.8V58H37ZM39.8 47.5V51.2H41.7C43.1 51.2 43.8 50.6 43.8 49.3S43.1 47.5 41.7 47.5Z"/>
+    <path d="M49 45H53.6C57.8 45 60 47.6 60 51.5S57.8 58 53.6 58H49ZM51.8 47.6V55.4H53.4C55.9 55.4 57.2 54 57.2 51.5S55.9 47.6 53.4 47.6Z"/>
+    <path d="M62.5 45H70.7V47.6H65.3V50.4H70V53H65.3V58H62.5Z"/>
+  </g>
+  <path d="M38.3 61H55M38.3 67H49" fill="none" stroke="#A7BDB0" stroke-width="2.5" stroke-linecap="round"/>
+  <g transform="translate(77 43) rotate(38)">
+    <path d="M-4.6-3Q-4.6-7 0-7Q4.6-7 4.6-3V32L0 42L-4.6 32Z" fill="#F2B866" stroke="#174C3C" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M0-7Q4.6-7 4.6-3V32H0Z" fill="#DEA04C"/>
+    <path d="M-4.6-3Q-4.6-7 0-7Q4.6-7 4.6-3V0H-4.6Z" fill="#FFE3AA"/>
+    <path d="M-4.6 2H4.6" stroke="#FFF5DA" stroke-width="1.7"/>
+    <path d="M-4.6 32H4.6L0 42Z" fill="#FFF3D6"/>
+    <path d="M-1.5 38.7H1.5L0 42Z" fill="#174C3C"/>
+    <path d="M-2.6 5V28" stroke="#FFDC94" stroke-width="1.1" stroke-linecap="round"/>
+  </g>
 </svg>

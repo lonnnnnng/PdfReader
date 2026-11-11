@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
+  <title>PdfReader 主题图标</title>
+  <!-- long: 字母与折角留空，编辑笔与纸张分离，系统单色着色后仍能辨认 PDF 编辑功能。 -->
+  <defs>
+    <mask id="details" maskUnits="userSpaceOnUse" x="0" y="0" width="108" height="108">
+      <rect width="108" height="108" fill="#FFFFFF"/>
+      <path fill="#000000" d="M59 29V36Q59 41 64 41H71Z"/>
+      <g fill="#000000" fill-rule="evenodd" transform="translate(7.4 7) scale(.8)">
+        <path d="M37 45H41.8C45 45 46.6 46.7 46.6 49.3S45 53.6 41.8 53.6H39.8V58H37ZM39.8 47.5V51.2H41.7C43.1 51.2 43.8 50.6 43.8 49.3S43.1 47.5 41.7 47.5Z"/>
+        <path d="M49 45H53.6C57.8 45 60 47.6 60 51.5S57.8 58 53.6 58H49ZM51.8 47.6V55.4H53.4C55.9 55.4 57.2 54 57.2 51.5S55.9 47.6 53.4 47.6Z"/>
+        <path d="M62.5 45H70.7V47.6H65.3V50.4H70V53H65.3V58H62.5Z"/>
+      </g>
+      <path d="M38.3 61H55M38.3 67H49" fill="none" stroke="#000000" stroke-width="2.5" stroke-linecap="round"/>
+      <g transform="translate(77 43) rotate(38)">
+        <path d="M-4.6-3Q-4.6-7 0-7Q4.6-7 4.6-3V32L0 42L-4.6 32Z" fill="#000000" stroke="#000000" stroke-width="4" stroke-linejoin="round"/>
+      </g>
+    </mask>
+  </defs>
+  <path d="M37 26H59L74 41V75Q74 81 68 81H37Q31 81 31 75V32Q31 26 37 26Z" fill="#FFFFFF" mask="url(#details)"/>
+  <g transform="translate(77 43) rotate(38)">
+    <path fill="#FFFFFF" d="M-4.6-3Q-4.6-7 0-7Q4.6-7 4.6-3V0H-4.6Z M-4.6 2.5H4.6V32L0 42L-4.6 32Z"/>
+  </g>
+</svg>

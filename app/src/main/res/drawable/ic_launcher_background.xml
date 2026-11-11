@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- long: 背景铺满自适应图层，动态遮罩移动时不会露出透明边缘。 -->
+    <path android:pathData="M0,0H108V108H0Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="18"
+                android:startY="18"
+                android:endX="85"
+                android:endY="90"
+                android:startColor="@color/ic_launcher_background_highlight"
+                android:endColor="@color/ic_launcher_background" />
+        </aapt:attr>
+    </path>
+</vector>

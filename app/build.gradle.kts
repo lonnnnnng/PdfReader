@@ -31,16 +31,16 @@ val hasReleaseSigning = listOf(
 ).all { !it.isNullOrBlank() }
 
 android {
-    namespace = "com.loooong.reader"
+    namespace = "com.loooong.pdfreader"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.loooong.reader"
+        applicationId = "com.loooong.pdfreader"
         minSdk = 26
         targetSdk = 35
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 28
-        versionName = "0.19.1"
+        versionCode = 29
+        versionName = "0.20.0"
     }
 
     dependenciesInfo {
@@ -60,6 +60,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            // long: 真机回归包与正式签名包隔离，调试安装不会覆盖用户正在使用的正式应用。
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         release {
             if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
@@ -92,7 +97,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.fragment.ktx)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
@@ -100,9 +104,6 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.compose.icons.tabler)
     implementation(libs.pdfbox.android)
-    implementation(libs.readium.shared)
-    implementation(libs.readium.streamer)
-    implementation(libs.readium.navigator)
     implementation(libs.mlkit.text.recognition.chinese)
     debugImplementation(libs.androidx.ui.tooling)
     testImplementation("junit:junit:4.13.2")

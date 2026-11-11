@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Reader"
+rootProject.name = "PdfReader"
 include(":app")

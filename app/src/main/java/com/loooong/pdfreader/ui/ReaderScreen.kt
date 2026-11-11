@@ -1,0 +1,1346 @@
+package com.loooong.pdfreader.ui
+
+import androidx.compose.runtime.DisposableEffect
+
+import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalOverscrollConfiguration
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.absoluteOffset
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import compose.icons.TablerIcons
+import compose.icons.tablericons.Bookmarks
+import compose.icons.tablericons.ChevronLeft
+import compose.icons.tablericons.ChevronRight
+import compose.icons.tablericons.Copy
+import compose.icons.tablericons.DotsVertical
+import compose.icons.tablericons.Edit
+import compose.icons.tablericons.FileSearch
+import compose.icons.tablericons.GridDots
+import compose.icons.tablericons.Maximize
+import compose.icons.tablericons.Minimize
+import compose.icons.tablericons.Search
+import compose.icons.tablericons.FileExport
+import compose.icons.tablericons.FileText
+import compose.icons.tablericons.X
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+import com.loooong.pdfreader.AppMode
+import com.loooong.pdfreader.PdfDocumentViewModel
+import com.loooong.pdfreader.PdfUiState
+import com.loooong.pdfreader.ReaderOutlineEntry
+import com.loooong.pdfreader.ReaderPageInfo
+import com.loooong.pdfreader.ReaderSearchResult
+import com.loooong.pdfreader.ReaderTextBounds
+import com.loooong.pdfreader.ReaderUiState
+import com.loooong.pdfreader.engine.PdfLinkInfo
+import com.loooong.pdfreader.engine.PdfLinkKind
+import com.loooong.pdfreader.engine.PdfLinkUriPolicy
+import kotlin.math.roundToInt
+
+private enum class ReaderPanel {
+    THUMBNAILS,
+    OUTLINE,
+    SEARCH,
+    TEXT,
+}
+
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@Composable
+fun ReaderScreen(
+    viewModel: PdfDocumentViewModel,
+    state: PdfUiState,
+    fullscreen: Boolean,
+    onToggleFullscreen: () -> Unit,
+    onClose: () -> Unit,
+    onOpen: () -> Unit,
+    hasAttachments: Boolean,
+    onAttachments: () -> Unit,
+    hasDigitalSignatures: Boolean,
+    onDigitalSignatures: () -> Unit,
+    onShare: () -> Unit,
+    onPrint: () -> Unit,
+    onSettings: () -> Unit,
+) {
+    val context = LocalContext.current
+    val readerState = viewModel.readerState
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = state.pageIndex)
+    val scope = rememberCoroutineScope()
+    var panel by remember { mutableStateOf<ReaderPanel?>(null) }
+    var showJumpDialog by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
+    var zoomPage by remember { mutableStateOf<Int?>(null) }
+    var pendingExternalUri by remember { mutableStateOf<String?>(null) }
+    var linkError by remember { mutableStateOf<String?>(null) }
+    val linksByPage = remember(readerState.links) {
+        readerState.links.filter { it.bounds != null }.groupBy { it.id.pageIndex }
+    }
+    val searchResultsByPage = remember(readerState.searchResults) {
+        readerState.searchResults.groupBy(ReaderSearchResult::pageIndex)
+    }
+
+    fun jumpTo(pageIndex: Int) {
+        val target = pageIndex.coerceIn(0, (state.pageCount - 1).coerceAtLeast(0))
+        scope.launch {
+            listState.animateScrollToItem(target)
+            viewModel.updateReaderPosition(context, target)
+        }
+    }
+
+    fun openLink(link: PdfLinkInfo) {
+        when (link.kind) {
+            PdfLinkKind.PAGE -> {
+                val target = link.targetPageIndex
+                if (target != null && target in 0 until state.pageCount) {
+                    jumpTo(target)
+                } else {
+                    linkError = "这个页内链接的目标页已经不存在或无法解析。"
+                }
+            }
+            PdfLinkKind.URI -> {
+                val validation = PdfLinkUriPolicy.validate(link.uri.orEmpty())
+                if (validation.allowed) {
+                    pendingExternalUri = validation.normalized
+                } else {
+                    linkError = validation.error ?: "这个外部链接无法安全打开。"
+                }
+            }
+            PdfLinkKind.UNSUPPORTED -> linkError = "当前版本暂不支持此链接动作：${link.description}"
+            PdfLinkKind.BROKEN -> linkError = "这个 PDF 链接已经损坏：${link.description}"
+        }
+    }
+
+    // long: 阅读进度以首个可见页为准，既能恢复到稳定位置，也避免滚动时高频写入像素偏移。
+    LaunchedEffect(listState, state.documentToken) {
+        snapshotFlow { listState.firstVisibleItemIndex }
+            .distinctUntilChanged()
+            .collect { viewModel.updateReaderPosition(context, it) }
+    }
+
+    Scaffold(
+        topBar = {
+            if (!fullscreen) TopAppBar(
+                title = {
+                    Column {
+                        Text(state.fileName, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            "连续阅读 · 第 ${state.pageIndex + 1} 页",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onClose) {
+                        Icon(TablerIcons.ChevronLeft, contentDescription = "返回首页")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { viewModel.toggleReaderBookmark(context, state.pageIndex) }) {
+                        Icon(
+                            TablerIcons.Bookmarks,
+                            contentDescription = if (state.pageIndex in readerState.bookmarks) {
+                                "取消当前页书签"
+                            } else {
+                                "收藏当前页"
+                            },
+                            tint = if (state.pageIndex in readerState.bookmarks) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                    IconButton(onClick = { panel = ReaderPanel.SEARCH }) {
+                        Icon(TablerIcons.Search, contentDescription = "全文搜索")
+                    }
+                    IconButton(onClick = onToggleFullscreen) {
+                        Icon(TablerIcons.Maximize, contentDescription = "进入全屏")
+                    }
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(TablerIcons.DotsVertical, contentDescription = "更多阅读操作")
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("跳转到指定页") },
+                                onClick = {
+                                    menuExpanded = false
+                                    showJumpDialog = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("进入编辑模式") },
+                                enabled = viewModel.permissions.canEdit,
+                                leadingIcon = { Icon(TablerIcons.Edit, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    viewModel.switchMode(AppMode.EDIT)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("打开其他 PDF") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onOpen()
+                                },
+                            )
+                            if (hasAttachments) {
+                                DropdownMenuItem(
+                                    text = { Text("查看 PDF 附件") },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onAttachments()
+                                    },
+                                )
+                            }
+                            if (hasDigitalSignatures) {
+                                DropdownMenuItem(
+                                    text = { Text("查看数字签名") },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onDigitalSignatures()
+                                    },
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("分享 PDF") },
+                                leadingIcon = { Icon(TablerIcons.FileExport, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onShare()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("打印 PDF") },
+                                enabled = viewModel.permissions.print,
+                                leadingIcon = { Icon(TablerIcons.FileText, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onPrint()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("设置") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onSettings()
+                                },
+                            )
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                ),
+            )
+        },
+        bottomBar = {
+            if (!fullscreen) BottomAppBar(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                contentPadding = PaddingValues(horizontal = 8.dp),
+            ) {
+                ReaderBottomAction(
+                    icon = { Icon(TablerIcons.GridDots, contentDescription = null) },
+                    label = "缩略图",
+                    selected = panel == ReaderPanel.THUMBNAILS,
+                    onClick = { panel = ReaderPanel.THUMBNAILS },
+                    modifier = Modifier.weight(1f),
+                )
+                ReaderBottomAction(
+                    icon = { Icon(TablerIcons.Bookmarks, contentDescription = null) },
+                    label = "目录/书签",
+                    selected = panel == ReaderPanel.OUTLINE,
+                    onClick = { panel = ReaderPanel.OUTLINE },
+                    modifier = Modifier.weight(1f),
+                )
+                ReaderBottomAction(
+                    icon = { Text("${state.pageIndex + 1}/${state.pageCount}") },
+                    label = "跳页",
+                    onClick = { showJumpDialog = true },
+                    modifier = Modifier.weight(1f),
+                )
+                ReaderBottomAction(
+                    icon = { Icon(TablerIcons.Copy, contentDescription = null) },
+                    label = "选择文本",
+                    enabled = viewModel.permissions.extract,
+                    selected = panel == ReaderPanel.TEXT,
+                    onClick = { panel = ReaderPanel.TEXT },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        },
+    ) { innerPadding ->
+        // long: 阅读到底时保持页面稳定，并限制大屏页宽，避免横屏和平板上 PDF 被拉伸到难以浏览的尺寸。
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+        ) {
+            CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    items(readerState.pageInfos, key = { it.pageIndex }) { info ->
+                        ReaderPage(
+                            viewModel = viewModel,
+                            info = info,
+                            links = linksByPage[info.pageIndex].orEmpty(),
+                            searchResults = searchResultsByPage[info.pageIndex].orEmpty(),
+                            activeSearchMatchIndex = readerState.activeSearchMatchIndex,
+                            documentToken = state.documentToken,
+                            onZoom = { zoomPage = info.pageIndex },
+                            onOpenLink = ::openLink,
+                            modifier = Modifier.widthIn(max = 900.dp).fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+            if (fullscreen) {
+                FullscreenExitButton(
+                    modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                    onClick = onToggleFullscreen,
+                )
+            }
+            if (readerState.searchResults.isNotEmpty()) {
+                ReaderSearchNavigationBar(
+                    results = readerState.searchResults,
+                    activeMatchIndex = readerState.activeSearchMatchIndex,
+                    onPrevious = {
+                        viewModel.moveReaderSearchResult(-1)?.let { jumpTo(it.pageIndex) }
+                    },
+                    onNext = {
+                        viewModel.moveReaderSearchResult(1)?.let { jumpTo(it.pageIndex) }
+                    },
+                    onClose = viewModel::clearReaderSearch,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(12.dp),
+                )
+            }
+        }
+    }
+
+    when (panel) {
+        ReaderPanel.THUMBNAILS -> ReaderThumbnailSheet(
+            viewModel = viewModel,
+            pageInfos = readerState.pageInfos,
+            currentPage = state.pageIndex,
+            onSelect = {
+                panel = null
+                jumpTo(it)
+            },
+            onDismiss = { panel = null },
+        )
+        ReaderPanel.OUTLINE -> ReaderOutlineSheet(
+            readerState = readerState,
+            currentPage = state.pageIndex,
+            onSelect = {
+                panel = null
+                jumpTo(it)
+            },
+            onDismiss = { panel = null },
+        )
+        ReaderPanel.SEARCH -> ReaderSearchSheet(
+            viewModel = viewModel,
+            readerState = readerState,
+            pageCount = state.pageCount,
+            onSelect = { result ->
+                panel = null
+                viewModel.activateReaderSearchResult(result.matchIndex)
+                jumpTo(result.pageIndex)
+            },
+            onDismiss = {
+                panel = null
+            },
+        )
+        ReaderPanel.TEXT -> ReaderTextSheet(
+            viewModel = viewModel,
+            pageIndex = state.pageIndex,
+            onDismiss = { panel = null },
+        )
+        null -> Unit
+    }
+
+    if (showJumpDialog) {
+        ReaderJumpDialog(
+            currentPage = state.pageIndex,
+            pageCount = state.pageCount,
+            onJump = {
+                showJumpDialog = false
+                jumpTo(it)
+            },
+            onDismiss = { showJumpDialog = false },
+        )
+    }
+
+    zoomPage?.let { pageIndex ->
+        readerState.pageInfos.getOrNull(pageIndex)?.let { info ->
+            ReaderZoomDialog(
+                viewModel = viewModel,
+                info = info,
+                links = linksByPage[pageIndex].orEmpty(),
+                onOpenLink = { link ->
+                    zoomPage = null
+                    openLink(link)
+                },
+                onDismiss = { zoomPage = null },
+            )
+        }
+    }
+
+    pendingExternalUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { pendingExternalUri = null },
+            title = { Text("打开外部链接？") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("该链接将交给系统中的其他应用打开，请确认地址可信。")
+                    SelectionContainer { Text(uri, style = MaterialTheme.typography.bodySmall) }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingExternalUri = null }) { Text("取消") }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingExternalUri = null
+                        openExternalPdfLink(context, uri)?.let { linkError = it }
+                    },
+                ) { Text("继续打开") }
+            },
+        )
+    }
+
+    linkError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { linkError = null },
+            title = { Text("无法打开链接") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { linkError = null }) { Text("知道了") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ReaderSearchNavigationBar(
+    results: List<ReaderSearchResult>,
+    activeMatchIndex: Int?,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val activePosition = results.indexOfFirst { it.matchIndex == activeMatchIndex }
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        tonalElevation = 4.dp,
+        shadowElevation = 4.dp,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.padding(horizontal = 4.dp),
+        ) {
+            IconButton(onClick = onPrevious) {
+                Icon(TablerIcons.ChevronLeft, contentDescription = "上一个搜索结果")
+            }
+            Text(
+                if (activePosition >= 0) {
+                    "${activePosition + 1}/${results.size}"
+                } else {
+                    "共 ${results.size} 处"
+                },
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+            IconButton(onClick = onNext) {
+                Icon(TablerIcons.ChevronRight, contentDescription = "下一个搜索结果")
+            }
+            IconButton(onClick = onClose) {
+                Icon(TablerIcons.X, contentDescription = "关闭搜索结果")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReaderBottomAction(
+    icon: @Composable () -> Unit,
+    label: String,
+    selected: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .heightIn(min = 56.dp)
+            .selectable(
+                selected = selected,
+                enabled = enabled,
+                role = Role.Tab,
+                onClick = onClick,
+            ),
+        shape = MaterialTheme.shapes.small,
+        color = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        },
+        contentColor = if (selected) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            icon()
+            Text(label, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
+private fun FullscreenExitButton(
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        tonalElevation = 3.dp,
+    ) {
+        IconButton(onClick = onClick) {
+            Icon(TablerIcons.Minimize, contentDescription = "退出全屏")
+        }
+    }
+}
+
+@Composable
+private fun ReaderPage(
+    viewModel: PdfDocumentViewModel,
+    info: ReaderPageInfo,
+    links: List<PdfLinkInfo>,
+    searchResults: List<ReaderSearchResult>,
+    activeSearchMatchIndex: Int?,
+    documentToken: Int,
+    onZoom: () -> Unit,
+    onOpenLink: (PdfLinkInfo) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    BoxWithConstraints(modifier) {
+        val targetWidth = constraints.maxWidth.coerceAtLeast(1)
+        var retryTick by remember(info.pageIndex) { mutableIntStateOf(0) }
+        DisposableEffect(documentToken, info.pageIndex) {
+            viewModel.retainReaderPage(info.pageIndex)
+            onDispose { viewModel.releaseReaderPage(info.pageIndex) }
+        }
+        LaunchedEffect(documentToken, info.pageIndex, targetWidth, retryTick) {
+            viewModel.prefetchReaderPages(info.pageIndex, targetWidth)
+        }
+        val page = viewModel.readerPages[info.pageIndex]
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(info.widthPoints / info.heightPoints)
+                            .clickable(role = Role.Button, onClick = onZoom)
+                            .semantics {
+                                contentDescription = "第 ${info.pageIndex + 1} 页，点击放大查看"
+                            },
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    when {
+                        page?.bitmap != null -> {
+                            Image(
+                                bitmap = page.bitmap,
+                                contentDescription = "第 ${info.pageIndex + 1} 页",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.FillBounds,
+                            )
+                            ReaderSearchHighlightOverlay(
+                                info = info,
+                                results = searchResults,
+                                activeMatchIndex = activeSearchMatchIndex,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            ReaderLinkOverlay(
+                                info = info,
+                                links = links,
+                                onOpenLink = onOpenLink,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                        page?.error != null -> Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(20.dp),
+                        ) {
+                            Text(
+                                page.error,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            TextButton(onClick = { retryTick++ }) {
+                                Text("重新加载")
+                            }
+                        }
+                        else -> CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.dp)
+                    }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "第 ${info.pageIndex + 1} 页",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReaderSearchHighlightOverlay(
+    info: ReaderPageInfo,
+    results: List<ReaderSearchResult>,
+    activeMatchIndex: Int?,
+    modifier: Modifier = Modifier,
+) {
+    if (results.isEmpty()) return
+    val regularColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+    val activeColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.48f)
+    Canvas(modifier) {
+        results.forEach { result ->
+            val color = if (result.matchIndex == activeMatchIndex) activeColor else regularColor
+            result.bounds.forEach { bounds ->
+                val mapped = mapReaderTextBounds(
+                    bounds = bounds,
+                    pageWidthPoints = info.widthPoints,
+                    pageHeightPoints = info.heightPoints,
+                    displayedWidth = size.width,
+                    displayedHeight = size.height,
+                )
+                drawRect(
+                    color = color,
+                    topLeft = Offset(mapped.left, mapped.top),
+                    size = Size(mapped.width, mapped.height),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReaderLinkOverlay(
+    info: ReaderPageInfo,
+    links: List<PdfLinkInfo>,
+    onOpenLink: (PdfLinkInfo) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (links.isEmpty()) return
+    BoxWithConstraints(modifier) {
+        val pageWidth = constraints.maxWidth.toFloat()
+        val pageHeight = constraints.maxHeight.toFloat()
+        val density = LocalDensity.current
+        val minimumTouchSize = with(density) { 32.dp.toPx() }
+        links.forEach { link ->
+            val bounds = link.bounds ?: return@forEach
+            val mapped = mapReaderLinkBounds(info, bounds, pageWidth, pageHeight) ?: return@forEach
+            val hitRect = mapped.expandAndClip(minimumTouchSize, pageWidth, pageHeight)
+            Box(
+                modifier = Modifier
+                    .absoluteOffset {
+                        IntOffset(hitRect.left.roundToInt(), hitRect.top.roundToInt())
+                    }
+                    .size(
+                        width = with(density) { hitRect.width.toDp() },
+                        height = with(density) { hitRect.height.toDp() },
+                    )
+                    .clickable(role = Role.Button) { onOpenLink(link) }
+                    .semantics {
+                        contentDescription = "PDF 链接：${link.description}"
+                    },
+            )
+        }
+    }
+}
+
+private fun Rect.expandAndClip(minimumSize: Float, maxWidth: Float, maxHeight: Float): Rect {
+    val horizontal = ((minimumSize - width) / 2f).coerceAtLeast(0f)
+    val vertical = ((minimumSize - height) / 2f).coerceAtLeast(0f)
+    return Rect(
+        left = (left - horizontal).coerceAtLeast(0f),
+        top = (top - vertical).coerceAtLeast(0f),
+        right = (right + horizontal).coerceAtMost(maxWidth),
+        bottom = (bottom + vertical).coerceAtMost(maxHeight),
+    )
+}
+
+@Composable
+private fun ReaderZoomDialog(
+    viewModel: PdfDocumentViewModel,
+    info: ReaderPageInfo,
+    links: List<PdfLinkInfo>,
+    onOpenLink: (PdfLinkInfo) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val page = viewModel.readerPages[info.pageIndex]
+    val bitmap = page?.bitmap
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(TablerIcons.X, contentDescription = "关闭放大视图")
+                    }
+                    Text("第 ${info.pageIndex + 1} 页", style = MaterialTheme.typography.titleMedium)
+                }
+                if (bitmap == null) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    val scaleState = remember(info.pageIndex) { mutableStateOf(1f) }
+                    val offsetState = remember(info.pageIndex) { mutableStateOf(Offset.Zero) }
+                    val linkRects = remember(links, bitmap.width, bitmap.height) {
+                        links.mapIndexedNotNull { index, link ->
+                            link.bounds?.let { bounds ->
+                                mapReaderLinkBounds(
+                                    info = info,
+                                    bounds = bounds,
+                                    pageWidthPx = bitmap.width.toFloat(),
+                                    pageHeightPx = bitmap.height.toFloat(),
+                                )?.let { rect -> LeafRect(index, rect) }
+                            }
+                        }
+                    }
+                    PdfCanvas(
+                        bitmap = bitmap,
+                        pageIndex = info.pageIndex,
+                        scaleState = scaleState,
+                        offsetState = offsetState,
+                        leaves = emptyList(),
+                        selectedRects = emptyList(),
+                        highlightColor = MaterialTheme.colorScheme.primary,
+                        backdropColor = MaterialTheme.colorScheme.surfaceVariant,
+                        runBoxes = emptyList(),
+                        linkRects = linkRects,
+                        editingRunId = null,
+                        textBoxColor = MaterialTheme.colorScheme.outline,
+                        onEditRun = {},
+                        onOpenLink = { index -> links.getOrNull(index)?.let(onOpenLink) },
+                        fitMode = FitMode.WIDTH,
+                        onUserTransform = {},
+                        onSelect = {},
+                        onToggleSelect = {},
+                        renderTile = { pageIndex, src, outW, outH ->
+                            // long: 阅读位图按屏幕宽度生成，而高清区域接口使用 144-DPI 坐标，先换算可避免 tile 覆盖后被放大裁切。
+                            val renderSource = mapReaderTileToRenderCoordinates(
+                                source = src,
+                                bitmapWidth = bitmap.width,
+                                bitmapHeight = bitmap.height,
+                                pageWidthPoints = info.widthPoints,
+                                pageHeightPoints = info.heightPoints,
+                                renderDpi = PdfDocumentViewModel.RENDER_DPI,
+                            )
+                            viewModel.renderRegion(
+                                pageIndex,
+                                renderSource.left,
+                                renderSource.top,
+                                renderSource.right,
+                                renderSource.bottom,
+                                outW,
+                                outH,
+                            )?.asImageBitmap()
+                        },
+                        // long: 放大画布只占工具栏下方的剩余空间，避免按整屏测量后被父容器裁切并产生错误适宽比例。
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .navigationBarsPadding(),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReaderThumbnailSheet(
+    viewModel: PdfDocumentViewModel,
+    pageInfos: List<ReaderPageInfo>,
+    currentPage: Int,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        ReaderSheetHeader("页面缩略图", onDismiss)
+        Spacer(Modifier.height(8.dp))
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(pageInfos, key = { it.pageIndex }) { info ->
+                DisposableEffect(info.pageIndex) {
+                    viewModel.ensureReaderThumbnail(info.pageIndex)
+                    onDispose { viewModel.releaseReaderPage(info.pageIndex, thumbnail = true) }
+                }
+                val thumbnail = viewModel.readerThumbnails[info.pageIndex]
+                Column(
+                    modifier = Modifier
+                        .width(112.dp)
+                        .semantics { selected = info.pageIndex == currentPage }
+                        .clickable(role = Role.Tab) { onSelect(info.pageIndex) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(info.widthPoints / info.heightPoints),
+                        shape = MaterialTheme.shapes.small,
+                        color = if (info.pageIndex == currentPage) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainer
+                        },
+                        shadowElevation = 1.dp,
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            thumbnail?.bitmap?.let {
+                                Image(
+                                    bitmap = it,
+                                    contentDescription = "第 ${info.pageIndex + 1} 页缩略图",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.FillBounds,
+                                )
+                            } ?: CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "${info.pageIndex + 1}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (info.pageIndex == currentPage) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(28.dp))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReaderOutlineSheet(
+    readerState: ReaderUiState,
+    currentPage: Int,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var tab by remember { mutableIntStateOf(0) }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        ReaderSheetHeader("目录与书签", onDismiss)
+        Spacer(Modifier.height(4.dp))
+        TabRow(selectedTabIndex = tab) {
+            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("目录") })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("书签") })
+        }
+        if (tab == 0) {
+            OutlineList(readerState.outline, currentPage, onSelect)
+        } else {
+            BookmarkList(readerState.bookmarks.sorted(), currentPage, onSelect)
+        }
+    }
+}
+
+@Composable
+private fun OutlineList(
+    entries: List<ReaderOutlineEntry>,
+    currentPage: Int,
+    onSelect: (Int) -> Unit,
+) {
+    if (entries.isEmpty()) {
+        EmptyPanelMessage("此文档没有可用目录")
+        return
+    }
+    LazyColumn(Modifier.heightIn(max = 520.dp)) {
+        items(entries) { entry ->
+            val isCurrent = entry.pageIndex == currentPage
+            ListItem(
+                modifier = Modifier
+                    .semantics { selected = isCurrent }
+                    .clickable(role = Role.Tab) { onSelect(entry.pageIndex) },
+                headlineContent = {
+                    Text(
+                        entry.title,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        color = if (isCurrent) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        modifier = Modifier.padding(start = (entry.level * 16).dp),
+                    )
+                },
+                supportingContent = { Text("第 ${entry.pageIndex + 1} 页") },
+                trailingContent = {
+                    if (isCurrent) Text("当前", color = MaterialTheme.colorScheme.primary)
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = if (isCurrent) {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerLow
+                    },
+                ),
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+        }
+        item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+@Composable
+private fun BookmarkList(pages: List<Int>, currentPage: Int, onSelect: (Int) -> Unit) {
+    if (pages.isEmpty()) {
+        EmptyPanelMessage("还没有添加书签")
+        return
+    }
+    LazyColumn(Modifier.heightIn(max = 520.dp)) {
+        items(pages) { pageIndex ->
+            val isCurrent = pageIndex == currentPage
+            ListItem(
+                modifier = Modifier
+                    .semantics { selected = isCurrent }
+                    .clickable(role = Role.Tab) { onSelect(pageIndex) },
+                headlineContent = { Text("第 ${pageIndex + 1} 页") },
+                leadingContent = { Icon(TablerIcons.Bookmarks, contentDescription = null) },
+                trailingContent = {
+                    if (isCurrent) Text("当前", color = MaterialTheme.colorScheme.primary)
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = if (isCurrent) {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerLow
+                    },
+                ),
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+        }
+        item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReaderSearchSheet(
+    viewModel: PdfDocumentViewModel,
+    readerState: ReaderUiState,
+    pageCount: Int,
+    onSelect: (ReaderSearchResult) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by remember { mutableStateOf(readerState.searchQuery) }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.padding(horizontal = 20.dp)) {
+            ReaderSheetHeader("全文搜索", onDismiss, horizontalPadding = 0.dp)
+            Spacer(Modifier.height(4.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("输入关键词") },
+                leadingIcon = { Icon(TablerIcons.Search, contentDescription = null) },
+                trailingIcon = {
+                    IconButton(onClick = { viewModel.searchReader(query) }) {
+                        Icon(TablerIcons.FileSearch, contentDescription = "开始搜索")
+                    }
+                },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { viewModel.searchReader(query) }),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (readerState.indexing || readerState.searching) {
+                Spacer(Modifier.height(12.dp))
+                if (readerState.indexing) {
+                    LinearProgressIndicator(
+                        progress = {
+                            if (pageCount == 0) 0f else readerState.indexedPageCount.toFloat() / pageCount
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+                Text(
+                    if (readerState.indexing) {
+                        "正在建立搜索索引 ${readerState.indexedPageCount}/$pageCount 页"
+                    } else {
+                        "正在查询索引"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (readerState.searchLimitReached) {
+                Text("已显示前 5000 处匹配，请使用更具体的关键词", style = MaterialTheme.typography.bodySmall)
+            }
+            readerState.searchError?.let {
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Text(
+                        it,
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                }
+            }
+        }
+        SearchResultList(
+            results = readerState.searchResults,
+            searching = readerState.searching,
+            hasQuery = readerState.searchQuery.isNotBlank(),
+            onSelect = onSelect,
+        )
+    }
+}
+
+@Composable
+private fun SearchResultList(
+    results: List<ReaderSearchResult>,
+    searching: Boolean,
+    hasQuery: Boolean,
+    onSelect: (ReaderSearchResult) -> Unit,
+) {
+    if (results.isEmpty()) {
+        val message = when {
+            searching -> "正在搜索整个文档"
+            hasQuery -> "没有找到匹配内容"
+            else -> "输入关键词后搜索整个文档"
+        }
+        EmptyPanelMessage(message)
+        return
+    }
+    LazyColumn(Modifier.heightIn(max = 480.dp)) {
+        items(results) { result ->
+            ListItem(
+                modifier = Modifier.clickable { onSelect(result) },
+                headlineContent = {
+                    Text("第 ${result.pageIndex + 1} 页 · 第 ${result.matchIndex + 1} 处")
+                },
+                supportingContent = {
+                    Text(result.snippet, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                },
+            )
+            HorizontalDivider()
+        }
+        item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReaderTextSheet(
+    viewModel: PdfDocumentViewModel,
+    pageIndex: Int,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    var text by remember(pageIndex) { mutableStateOf<String?>(null) }
+    var failure by remember(pageIndex) { mutableStateOf<String?>(null) }
+    LaunchedEffect(pageIndex) {
+        try {
+            text = viewModel.readerPageText(pageIndex)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            failure = error.message ?: "无法读取本页文本"
+        }
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.padding(horizontal = 20.dp).navigationBarsPadding()) {
+            ReaderSheetHeader("第 ${pageIndex + 1} 页文本", onDismiss, horizontalPadding = 0.dp)
+            Spacer(Modifier.height(8.dp))
+            when {
+                failure != null -> EmptyPanelMessage(failure.orEmpty())
+                text == null -> Box(
+                    Modifier.fillMaxWidth().height(180.dp),
+                    contentAlignment = Alignment.Center,
+                ) { CircularProgressIndicator() }
+                text.isNullOrBlank() -> EmptyPanelMessage("本页没有可提取的文本")
+                else -> {
+                    // long: 文本区单独滚动并限制高度，既保留长按选择手势，也确保整页复制按钮在小屏上始终可达。
+                    SelectionContainer {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 160.dp, max = 260.dp)
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            Text(text.orEmpty())
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    FilledTonalButton(
+                        onClick = { copyText(context, text.orEmpty()) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(TablerIcons.Copy, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("复制本页全部文本")
+                    }
+                }
+            }
+            Spacer(Modifier.height(28.dp))
+        }
+    }
+}
+
+@Composable
+private fun ReaderSheetHeader(
+    title: String,
+    onDismiss: () -> Unit,
+    horizontalPadding: androidx.compose.ui.unit.Dp = 12.dp,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = horizontalPadding + 8.dp, end = horizontalPadding),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+        IconButton(onClick = onDismiss) {
+            Icon(TablerIcons.X, contentDescription = "关闭$title")
+        }
+    }
+}
+
+@Composable
+private fun EmptyPanelMessage(message: String) {
+    Box(
+        modifier = Modifier.fillMaxWidth().height(180.dp).padding(20.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            message,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
+@Composable
+private fun ReaderJumpDialog(
+    currentPage: Int,
+    pageCount: Int,
+    onJump: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var value by remember { mutableStateOf((currentPage + 1).toString()) }
+    val target = value.toIntOrNull()
+    val valid = target != null && target in 1..pageCount
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("跳转到指定页") },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it.filter(Char::isDigit) },
+                label = { Text("页码（1-$pageCount）") },
+                singleLine = true,
+            )
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        confirmButton = {
+            Button(onClick = { onJump(requireNotNull(target) - 1) }, enabled = valid) {
+                Text("跳转")
+            }
+        },
+    )
+}
+
+private fun openExternalPdfLink(context: Context, uri: String): String? = runCatching {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(uri))
+    if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    // long: 外部链接只有在白名单校验和用户确认后才交给系统，应用自身不解析网页或邮件内容。
+    context.startActivity(intent)
+}.exceptionOrNull()?.let { "系统中没有能够打开该链接的应用。" }
+
+private fun copyText(context: Context, text: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("PDF 文本", text))
+    Toast.makeText(context, "已复制本页文本", Toast.LENGTH_SHORT).show()
+}
+
+internal fun mapReaderTileToRenderCoordinates(
+    source: Rect,
+    bitmapWidth: Int,
+    bitmapHeight: Int,
+    pageWidthPoints: Float,
+    pageHeightPoints: Float,
+    renderDpi: Float,
+): Rect {
+    require(bitmapWidth > 0 && bitmapHeight > 0) { "阅读位图尺寸必须大于 0" }
+    val sourceScaleX = (pageWidthPoints * renderDpi / 72f) / bitmapWidth
+    val sourceScaleY = (pageHeightPoints * renderDpi / 72f) / bitmapHeight
+    return Rect(
+        left = source.left * sourceScaleX,
+        top = source.top * sourceScaleY,
+        right = source.right * sourceScaleX,
+        bottom = source.bottom * sourceScaleY,
+    )
+}
+
+internal fun mapReaderTextBounds(
+    bounds: ReaderTextBounds,
+    pageWidthPoints: Float,
+    pageHeightPoints: Float,
+    displayedWidth: Float,
+    displayedHeight: Float,
+): Rect {
+    require(pageWidthPoints > 0f && pageHeightPoints > 0f) { "PDF 页面尺寸必须大于 0" }
+    require(displayedWidth > 0f && displayedHeight > 0f) { "显示页面尺寸必须大于 0" }
+    val scaleX = displayedWidth / pageWidthPoints
+    val scaleY = displayedHeight / pageHeightPoints
+    return Rect(
+        left = (bounds.left * scaleX).coerceIn(0f, displayedWidth),
+        top = (bounds.top * scaleY).coerceIn(0f, displayedHeight),
+        right = (bounds.right * scaleX).coerceIn(0f, displayedWidth),
+        bottom = (bounds.bottom * scaleY).coerceIn(0f, displayedHeight),
+    )
+}

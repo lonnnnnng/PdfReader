@@ -1,22 +1,22 @@
 <p align="center">
-  <img src="fastlane/metadata/android/en-US/images/icon.png" width="112" alt="阅读应用图标" />
+  <img src="fastlane/metadata/android/en-US/images/icon.png" width="112" alt="PdfReader 应用图标" />
 </p>
 
-<h1 align="center">阅读</h1>
+<h1 align="center">PdfReader</h1>
 
 <p align="center">
-  一款本地优先的 Android PDF 阅读、对象级编辑与电子书阅读应用
+  一款本地优先的 Android PDF 阅读与对象级编辑应用
 </p>
 
 <p align="center">
-  <a href="https://github.com/lonnnnnng/reader/releases/latest"><img src="https://img.shields.io/github/v/release/lonnnnnng/reader?style=flat-square&label=%E6%9C%80%E6%96%B0%E7%89%88&color=2563eb" alt="最新版本" /></a>
+  <a href="https://github.com/lonnnnnng/PdfReader/releases/latest"><img src="https://img.shields.io/github/v/release/lonnnnnng/PdfReader?style=flat-square&label=%E6%9C%80%E6%96%B0%E7%89%88&color=2563eb" alt="最新版本" /></a>
   <img src="https://img.shields.io/badge/Android-8.0%2B-3ddc84?style=flat-square&logo=android&logoColor=white" alt="Android 8.0 及以上" />
   <img src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7f52ff?style=flat-square&logo=kotlin&logoColor=white" alt="Kotlin 与 Jetpack Compose" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/%E5%BC%80%E6%BA%90%E5%8D%8F%E8%AE%AE-MIT-f59e0b?style=flat-square" alt="MIT 开源协议" /></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/lonnnnnng/reader/releases/latest"><strong>下载最新版</strong></a>
+  <a href="https://github.com/lonnnnnng/PdfReader/releases/latest"><strong>下载最新版</strong></a>
   ·
   <a href="#功能全景">功能全景</a>
   ·
@@ -25,17 +25,16 @@
 
 ---
 
-## 关于“阅读”
+## 关于 PdfReader
 
-“阅读”不只是 PDF 查看器。它把日常阅读、内容对象编辑、页面整理、批注签名和电子书阅读整合在同一个 Android 应用中，并尽可能让文档处理留在设备本地。
+PdfReader 专注于 PDF 查看和编辑，将内容对象编辑、页面整理、批注、表单与签名整合在同一个 Android 应用中，文档处理在设备本地完成。
 
-应用首页提供三个清晰入口：
+应用首页提供两个清晰入口：
 
 | 模式 | 适用场景 | 主要能力 |
 | --- | --- | --- |
 | **阅读 PDF** | 浏览、检索和长时间阅读 | 连续滚动、目录、缩略图、书签、全文搜索、文本复制、全屏阅读 |
 | **编辑 PDF** | 修改内容和整理文档 | 编辑现有文字、路径与图片，插入内容，管理页面、批注、表单、签名和安全设置 |
-| **电子书** | 阅读本地或在线书籍 | 支持 EPUB、TXT，本地文件与 HTTPS 直链，目录搜索、正文搜索、书签、音量键翻阅和阅读进度恢复 |
 
 ## 核心亮点
 
@@ -52,21 +51,11 @@
 
 ### 从阅读到文档处理
 
-除了对象编辑，“阅读”还覆盖了常用的 PDF 文档工作流：页面导入、导出、拆分、合并、裁剪、旋转、尺寸调整、OCR、压缩、水印、页码、附件、目录、链接、元数据和权限管理。
-
-### 更适合长时间小说阅读
-
-电子书模式面向 EPUB 与 TXT 的连续阅读场景，既可以打开本地文件，也可以读取用户主动输入的 HTTPS 直链。
-
-- 目录支持常见的中文、英文、数字编号和括号章节标题，并可按中文、英文或多个关键词同时筛选；搜索结果为空时会给出提示，清除条件后自动回到当前章节并保持高亮；
-- 正文支持全文搜索、章节跳转、进度拖动、书签添加与管理；TXT 会保存段落内滚动位置，重新打开应用或点击书签时可精确恢复阅读位置；
-- 字号、行距、页边距和阅读主题可单独调整，设置会持久化保存，并自动修复异常或损坏的历史值；
-- 可选择在阅读正文时保持屏幕常亮，离开 TXT/EPUB 正文后立即恢复系统休眠策略；
-- 可选择使用音量上键向前、音量下键向后翻阅；打开目录、搜索、书签或设置面板时，音量键仍交还系统调节媒体音量。
+除了对象编辑，PdfReader 还覆盖了常用的 PDF 文档工作流：页面导入、导出、拆分、合并、裁剪、旋转、尺寸调整、OCR、压缩、水印、页码、附件、目录、链接、元数据和权限管理。
 
 ### 安全保存与故障恢复
 
-保存不是简单地覆盖原文件。应用会先写入临时文件，重新解析并检查关键结构；覆盖前还会核对来源文件指纹，并在失败时尝试从备份恢复。未保存的编辑会写入恢复文件，应用重新打开后可以继续处理。
+保存不是简单地覆盖原文件。应用会先写入临时文件，重新解析并检查关键结构；覆盖前还会核对来源文件指纹，并在失败时尝试从备份恢复。未保存的编辑会写入恢复文件，应用重新打开后可以继续处理。覆盖写入和自动恢复同时失败时，原始备份会留在应用私有存储中，可从备份提示或首页导出。
 
 ## 功能全景
 
@@ -83,7 +72,6 @@
 | **文档结构** | 元数据、目录、链接和附件的新增、修改、移动、导出或删除 |
 | **文档处理** | OCR 可搜索文字层、图片重编码压缩、水印、页码、AES-128/AES-256 加密与细粒度权限设置 |
 | **系统集成** | Android 文件选择器、系统打开方式、系统分享、系统打印、GitHub Release 在线更新 |
-| **电子书** | 本地与 HTTPS 在线 EPUB/TXT、目录与章节搜索、正文搜索、书签、阅读历史、进度恢复、屏幕常亮和音量键翻阅 |
 | **个性化** | 浅色、深色、跟随系统三种主题，Material You 动态色与强调色设置 |
 
 更细的功能范围与限制见 [PDF 编辑器功能汇总](docs/pdf-editor-feature-summary.md)。
@@ -93,21 +81,23 @@
 - PDF 的读取、编辑、OCR 和导出均在设备本地完成，不上传到服务端；
 - 应用无需账号，不集成用户行为遥测；
 - 文件通过 Android Storage Access Framework 选择，应用只访问你明确授权的文档；
-- 网络用于打开用户主动输入的在线电子书地址，以及主动检查和下载 GitHub Release 更新；
+- 网络仅用于用户主动检查和下载 GitHub Release 更新；
 - 已有数字签名或无法确认签名状态的 PDF 禁止覆盖保存，避免无提示破坏签名；
 - 全页“保留结构”导出直接写入当前文档；部分页面遇到 Tagged PDF、可选内容组、脚本动作、复杂名称树和跨 Form 等高风险结构时，会提示改用静态展平副本。
 
 ## 下载与安装
 
-前往 [GitHub Releases](https://github.com/lonnnnnng/reader/releases/latest) 下载最新签名 APK。
+前往 [GitHub Releases](https://github.com/lonnnnnng/PdfReader/releases/latest) 下载最新签名 APK。
 
 | 项目 | 要求 |
 | --- | --- |
 | 系统版本 | Android 8.0（API 26）及以上 |
-| 应用包名 | `com.loooong.reader` |
+| 应用包名 | `com.loooong.pdfreader` |
 | 发布渠道 | GitHub Releases |
 
-首次安装时，Android 可能要求你允许当前文件管理器或浏览器“安装未知应用”。升级时可直接安装新版本；如果设备上存在使用其他签名的历史构建，需要先卸载旧版本。
+PdfReader 0.20.0 使用独立包名和专用正式签名，可以与旧“阅读”（`com.loooong.reader`）共存。旧应用的数据不会自动迁移，需在新应用中重新选择 PDF；请通过发布页独立安装，旧应用的在线更新不能覆盖升级到新包名。
+
+首次安装时，Android 可能要求允许当前文件管理器或浏览器“安装未知应用”。后续 PdfReader 正式版沿用相同包名与签名，可直接升级。调试包使用 `com.loooong.pdfreader.debug`，与正式版隔离。
 
 ## 从源码构建
 
@@ -120,8 +110,8 @@
 ### 构建步骤
 
 ```bash
-git clone https://github.com/lonnnnnng/reader.git
-cd reader
+git clone https://github.com/lonnnnnng/PdfReader.git
+cd PdfReader
 ./gradlew :app:assembleDebug
 ```
 
@@ -137,7 +127,7 @@ app/build/outputs/apk/debug/app-debug.apk
 ./gradlew :app:testDebugUnitTest :app:lintDebug
 ```
 
-正式版构建需要配置你自己的 Android 签名信息；仓库不会包含发布密钥或密码。
+正式版构建通过 `READER_KEYSTORE_FILE`、`READER_STORE_PASSWORD`、`READER_KEY_ALIAS`、`READER_KEY_PASSWORD` 注入签名信息，也兼容未跟踪的 `keystore.properties`。可运行 `python3 scripts/release.py build` 从本机钥匙串读取 PdfReader 专用签名并构建，或通过环境变量使用其他签名配置；仓库不包含密钥或密码。
 
 ## 技术栈
 
@@ -145,7 +135,6 @@ app/build/outputs/apk/debug/app-debug.apk
 | --- | --- |
 | 界面 | Kotlin、Jetpack Compose、Material 3 |
 | PDF 解析与写入 | PDFBox Android、自研内容流解析与编辑层 |
-| EPUB 阅读 | Readium Kotlin Toolkit |
 | OCR | Google ML Kit 中文文字识别 |
 | 文件访问 | Android Storage Access Framework、FileProvider |
 | 状态与恢复 | ViewModel、文档指纹、临时文件校验与恢复快照 |
@@ -153,14 +142,12 @@ app/build/outputs/apk/debug/app-debug.apk
 ## 项目结构
 
 ```text
-app/src/main/java/com/loooong/reader/
+app/src/main/java/com/loooong/pdfreader/
 ├── engine/          PDF 内容流、页面和文档级编辑引擎
 ├── ui/              Compose 阅读、编辑和工具界面
 ├── MainActivity.kt  首页入口、文档打开和应用导航
-├── PdfDocumentViewModel.kt
-│                    PDF 会话、编辑状态、保存与恢复协调
-└── EbookViewModel.kt
-                     EPUB/TXT 打开、在线下载与阅读状态
+└── PdfDocumentViewModel.kt
+                     PDF 会话、编辑状态、保存与恢复协调
 ```
 
 ## 当前边界
@@ -172,7 +159,7 @@ app/src/main/java/com/loooong/reader/
 
 ## 参与贡献
 
-欢迎通过 [Issues](https://github.com/lonnnnnng/reader/issues) 报告问题或提出建议。提交问题时，建议附上 Android 版本、应用版本、复现步骤；如果 PDF 可以公开，也可以提供用于复现的最小样本。
+欢迎通过 [Issues](https://github.com/lonnnnnng/PdfReader/issues) 报告问题或提出建议。提交问题时，建议附上 Android 版本、应用版本、复现步骤；如果 PDF 可以公开，也可以提供用于复现的最小样本。
 
 提交代码前请至少运行：
 
@@ -182,4 +169,6 @@ app/src/main/java/com/loooong/reader/
 
 ## 开源协议与致谢
 
-本项目基于 [PDF Inspector for Android](https://github.com/shardulvs/pdfinspector-android) 持续改造，并使用 [MIT License](LICENSE) 开源。感谢原项目作者以及 PDFBox、Readium、ML Kit 等开源项目的贡献者。
+本项目基于 [PDF Inspector for Android](https://github.com/shardulvs/pdfinspector-android) 持续改造，并使用 [MIT License](LICENSE) 开源。感谢原项目作者以及 PDFBox、ML Kit 等开源项目的贡献者。
+
+中文编辑内置[霞鹜文楷轻便版 v1.530](https://github.com/lxgw/LxgwWenKai-Lite/releases/tag/v1.530)静态 TrueType 字体，按 SIL OFL 1.1 分发，许可证随字体附带。轻便版不包含所有生僻字；缺字时可导入兼容的静态 TrueType 字体。

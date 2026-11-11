@@ -1,4 +1,4 @@
-阅读 opens a PDF and shows what is actually inside it. Like a browser's developer tools, it parses each page's content stream into a navigable tree of elements (text blocks, vector paths and images) so you can find any single element, select it on the page or in the tree, and edit it. Saving a copy is always available; when Android grants write access and the document has no digital signature, the app can offer a protected overwrite flow with fingerprint, backup and read-back validation.
+PdfReader opens a PDF and shows what is actually inside it. Like a browser's developer tools, it parses each page's content stream into a navigable tree of elements (text blocks, vector paths and images) so you can find any single element, select it on the page or in the tree, and edit it. Saving a copy is always available; when Android grants write access and the document has no digital signature, the app can offer a protected overwrite flow with fingerprint, backup and read-back validation.
 
 Highlights:
 
@@ -16,4 +16,4 @@ Private and open:
 * Open source, no accounts, no telemetry.
 * No account, telemetry or background network activity: network access is used only when you explicitly request an online update check. Files are opened and saved through Android's Storage Access Framework, so the app only ever touches the documents you explicitly pick.
 
-阅读 works with the drawing primitives a PDF already contains: select, move, resize, recolor, retype and delete them. It is not a word-processor-style text editor, so lines do not reflow, but when the original font is missing a character you can re-encode the text with a fallback font, bundled or taken from your device or imported.
+PdfReader works with the drawing primitives a PDF already contains: select, move, resize, recolor, retype and delete them. It is not a word-processor-style text editor, so lines do not reflow, but when the original font is missing a character you can re-encode the text with a fallback font, bundled or taken from your device or imported.

@@ -92,6 +92,7 @@ PdfReader 专注于 PDF 查看和编辑，将内容对象编辑、页面整理�
 | 项目 | 要求 |
 | --- | --- |
 | 系统版本 | Android 8.0（API 26）及以上 |
+| CPU 架构 | ARM64（`arm64-v8a`，从 0.20.1 起仅提供此架构） |
 | 应用包名 | `com.loooong.pdfreader` |
 | 发布渠道 | GitHub Releases |
 

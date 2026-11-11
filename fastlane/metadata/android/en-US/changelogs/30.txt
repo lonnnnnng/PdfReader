@@ -1,0 +1,2 @@
+Ship only arm64-v8a native libraries to reduce the APK download size.
+PDF viewing, editing, Chinese fonts and offline OCR remain included. Updates from 0.20.0 keep the same package and signing certificate.

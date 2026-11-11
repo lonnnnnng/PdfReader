@@ -1,0 +1,4 @@
+New PdfReader icon featuring a PDF document and editing pencil.
+Includes square, round, adaptive and themed icons with improved small-size rendering.
+Expanded README with features, limitations and icon generation instructions.
+ARM64 only; supports upgrading directly from 0.20.0 / 0.20.1.

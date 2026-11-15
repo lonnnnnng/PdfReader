@@ -8,7 +8,7 @@
 - Gradle `defaultConfig.ndk.abiFilters` 仅包含 `arm64-v8a`，适用于 Debug 和 Release。
 - 移除 `armeabi-v7a`、`x86`、`x86_64` 的重复原生库；完整保留 ARM64 离线 OCR、PDF 查看编辑、模型、中文字体和文档签名功能。
 - 使用 0.20.0 的同一正式签名，可在 ARM64 设备覆盖升级；其他架构不再提供安装包。
-- APK 沿用 `PdfReader-0.20.1.apk` 命名，与现有在线更新资产选择规则一致。
+- APK 沿用 `PdfReader-0.20.1.apk` 命名，与 GitHub Release 发布资产命名一致。
 
 ## 验证方式
 

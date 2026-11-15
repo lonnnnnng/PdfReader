@@ -33,24 +33,24 @@ PdfReader 将 PDF 连续阅读、现有内容对象编辑、页面整理、批�
 
 编辑器会解析页面内容流中的文字、矢量路径、图片和 Form XObject，提供对象树与画布联动选择，可以修改已有内容，并通过系统文件选择器保存结果。
 
-本文按 **0.20.2** 的实际实现整理，更新于 **2026-11-11**。当前应用专注 PDF，EPUB/TXT 电子书功能已移除。
+本文按 **0.20.3** 的实际实现整理，更新于 **2026-11-15**。当前应用专注 PDF，EPUB/TXT 电子书功能已移除。
 
 ## 下载与安装
 
-前往 [GitHub Releases](https://github.com/lonnnnnng/PdfReader/releases/latest)，下载 `PdfReader-<版本号>.apk`；同一发布页提供 `SHA256SUMS` 校验文件。
+前往 [GitHub Releases](https://github.com/lonnnnnng/PdfReader/releases/latest)，下载 `PdfReader-<版本号>.apk`；同一发布页提供 `SHA256SUMS` 校验文件。应用内版本检查只负责打开该发布页，不会代替用户下载或安装。
 
 | 项目 | 当前说明 |
 | --- | --- |
-| 正式版本 | 0.20.2，versionCode 31 |
+| 正式版本 | 0.20.3，versionCode 32 |
 | 系统要求 | Android 8.0（API 26）及以上 |
 | CPU 架构 | **仅 ARM64：`arm64-v8a`**，从 0.20.1 起不再打包其他架构 |
 | 正式包名 | `com.loooong.pdfreader` |
 | 当前 APK 体积 | 37.00 MB（36,996,590 字节） |
-| 发布渠道 | GitHub Releases；应用内“设置 → 在线更新” |
+| 发布渠道 | GitHub Releases；应用内“设置 → 检查更新” |
 
 0.20.1 移除了其他架构的重复原生库，APK 从 0.20.0 的 66.93 MB 减少约 **44.9%**。ARM64 的 PDF 功能、离线 OCR 模型与中文字体完整保留。
 
-0.20.2 换用“PDF 文档 + 编辑笔”图标，提供方形、圆形、自适应及 Android 主题图标；完整功能说明与图标生成方式分别见本文和 [图标说明](branding/README.md)。
+0.20.2 换用“PDF 文档 + 编辑笔”图标，0.20.3 移除应用内 APK 下载与安装逻辑；完整功能说明与图标生成方式分别见本文和 [图标说明](branding/README.md)。
 
 首次安装需要按 Android 提示允许当前浏览器或文件管理器“安装未知应用”。PdfReader 正式版沿用相同包名和发布签名，ARM64 设备可直接从 0.20.0 / 0.20.1 覆盖升级。
 
@@ -67,7 +67,7 @@ PdfReader 从 0.20.0 起使用独立包名，可与旧“阅读”（`com.loooon
 | OCR、压缩等工具 | 编辑器的文档工具或“更多操作”菜单；窄屏使用菜单集中展示工具 |
 | 合并文件 | 首页“合并多个 PDF”，选择至少两份文件后指定输出位置 |
 | 保存结果 | 使用“保存修改”或“另存为”；无法安全覆盖来源时使用副本保存 |
-| 调整外观或更新 | 首页或文档界面的设置入口；主题、动态配色、强调色和在线更新均在设置页 |
+| 调整外观或更新 | 首页或文档界面的设置入口；主题、动态配色、强调色和版本检查均在设置页 |
 
 具体操作是否可用，取决于 PDF 权限、对象结构、当前选择和工具支持范围。工具不可安全执行时会禁用或提示原因。
 
@@ -211,7 +211,7 @@ PdfReader 从 0.20.0 起使用独立包名，可与旧“阅读”（`com.loooon
 - Android 12+ 支持 Material You 壁纸动态配色；可选择墨绿、蓝、紫、绿、琥珀五种强调色。
 - Android `VIEW` 打开 PDF，Storage Access Framework 文件选择与读写授权，系统分享及系统打印。
 - 分享、打印使用当前工作内容生成临时 PDF，打印受文档权限和系统打印服务可用性约束。
-- “设置 → 在线更新”主动检查 GitHub Release，展示版本说明、下载进度、失败原因及安装授权提示，支持恢复已有下载任务。
+- “设置 → 检查更新”主动读取 GitHub Release 元数据；有新版时展示版本说明并打开 GitHub 发布页，无新版时提示“已是最新版本”。应用不会在后台下载或安装 APK。
 - 更新安装前核对 SHA256、应用包名、递增版本码、版本名和发布证书，再交给 Android 系统确认安装。
 
 ## 保存、撤销与恢复
@@ -245,7 +245,7 @@ PdfReader 从 0.20.0 起使用独立包名，可与旧“阅读”（`com.loooon
 - **文档迁移**：部分页面保留导出、拆分和合并受文档结构约束，不能保证跨文件完整保留全部文档级语义；展平副本牺牲可搜索性和交互能力。
 - **签名与标准**：暂不支持 TSA、OCSP、CRL、PAdES-LTV、XFDF 批注交换、PDF/A 或 PDF/UA 合规检查、文档比较。
 - **表单与字体**：不覆盖所有 PDF 表单字段及字体格式；只读字段、缺失字形、不支持的字体轮廓会限制修改。
-- **设备范围**：从 0.20.1 起只发布 ARM64 安装包；0.20.1 的完整功能回归使用 POCO F2 Pro，0.20.2 的图标与升级验证使用 Redmi Note 8 Pro。
+- **设备范围**：从 0.20.1 起只发布 ARM64 安装包；0.20.1 的完整功能回归使用 POCO F2 Pro，0.20.2/0.20.3 的发布与更新检查验证使用 Redmi Note 8 Pro。
 
 ## 从源码构建
 
@@ -285,7 +285,7 @@ macOS 本机另提供 `python3 scripts/release.py build`，可从登录钥匙串
 
 ## 当前版本验证
 
-0.20.2 已在 **Redmi Note 8 Pro / Android API 36** 完成正式包从 0.20.1 覆盖升级、冷启动与图标显示验证。Release 单元测试 234 项中 233 项通过、1 项既有跳过项；Release Lint 无错误，R8、资源压缩与正式签名构建通过。ARM64 原生库、OCR 模型、字体等 201 项业务资源与上一版哈希一致，详见 [0.20.2 验收记录](docs/release-0.20.2-validation.md)。
+0.20.3 已在 **Redmi Note 8 Pro / Android API 36** 完成正式包覆盖升级、冷启动、GitHub 版本检查和“已是最新版本”提示验证。应用只读取 GitHub Release 元数据，发现新版后打开发布页，不在应用内下载或安装 APK。Release 单元测试、Lint、R8、资源压缩与正式签名构建结果见 [0.20.3 验收记录](docs/release-0.20.3-validation.md)。
 
 此前 0.20.1 在 **POCO F2 Pro / Android API 36** 完成 18 项设备回归，包含真实离线 OCR、图片替换、压缩、中文水印与连续中文编辑、加密文档、混合撤销、草稿恢复、同源覆盖保护、长页面渲染及 Activity 重建，并通过正式版 OCR 导出回读。详见 [0.20.1 验收记录](docs/release-0.20.1-validation.md)，PDF 功能修复的详细背景见 [0.20.0 验收记录](docs/release-0.20.0-validation.md)。
 
@@ -301,7 +301,7 @@ app/src/main/java/com/loooong/pdfreader/
 ├── ReaderDomain.kt          阅读历史、书签与搜索模型
 ├── FontCatalog.kt           内置、系统及导入字体
 ├── AndroidOcrRecognizer.kt  本地 OCR 适配
-└── OnlineUpdater.kt         APK 下载与安装校验
+└── UpdateChecker.kt         GitHub Release 版本检查与版本比较
 ```
 
 另有 PDFBox 字体子集适配代码、JVM 与 Android 设备测试，以及 [PDF 编辑器功能汇总](docs/pdf-editor-feature-summary.md)。

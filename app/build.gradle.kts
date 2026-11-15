@@ -39,8 +39,8 @@ android {
         minSdk = 26
         targetSdk = 35
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 31
-        versionName = "0.20.2"
+        versionCode = 32
+        versionName = "0.20.3"
         ndk {
             // long: 发布目标仅为 ARM64 设备，避免离线 OCR 的其他架构原生库重复占用安装包。
             abiFilters += "arm64-v8a"

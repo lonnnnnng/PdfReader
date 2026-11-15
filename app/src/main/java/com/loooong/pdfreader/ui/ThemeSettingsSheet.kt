@@ -207,7 +207,7 @@ fun SettingsScreen(theme: ThemeState, onBack: () -> Unit) {
 
                 item { HorizontalDivider(Modifier.padding(top = 8.dp)) }
                 item { SectionLabel("更新") }
-                item { OnlineUpdateSection() }
+                item { UpdateCheckSection() }
             }
         }
     }

@@ -4,7 +4,7 @@
 
 ## 产品定位
 
-PdfReader 是一个 Android PDF 阅读与编辑应用，基于 Jetpack Compose、PDFBox Android 和 Android Storage Access Framework。应用不上传用户 PDF；文件由用户通过系统文件选择器明确选择，网络仅用于用户主动发起的在线更新检查。
+PdfReader 是一个 Android PDF 阅读与编辑应用，基于 Jetpack Compose、PDFBox Android 和 Android Storage Access Framework。应用不上传用户 PDF；文件由用户通过系统文件选择器明确选择，网络仅用于用户主动发起的 GitHub 版本检查。
 
 ## 入口与阅读
 
@@ -85,7 +85,7 @@ PdfReader 是一个 Android PDF 阅读与编辑应用，基于 Jetpack Compose�
 
 - 支持通过 Android `VIEW` Intent 打开 PDF。
 - 支持系统文件选择器读写文档。
-- 支持在线检查 GitHub Release 更新、下载 APK 和调用系统安装器。
+- 支持检查 GitHub Release 版本；发现新版本后打开 GitHub 发布页，由用户自行下载和安装。
 - 支持将当前 PDF 通过 Android 系统分享。
 - 支持调用 Android 系统打印服务打印当前 PDF。
 

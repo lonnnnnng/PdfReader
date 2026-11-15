@@ -12,8 +12,6 @@ data class ReleaseInfo(
     val name: String,
     val notes: String,
     val releaseUrl: String,
-    val downloadUrl: String?,
-    val sha256: String? = null,
 )
 
 sealed class UpdateCheckResult {
@@ -76,31 +74,11 @@ object UpdateChecker {
         val root = JSONObject(json)
         val tag = root.getString("tag_name").trim()
         val releaseUrl = root.getString("html_url")
-        val assets = root.optJSONArray("assets")
-        var apkUrl: String? = null
-        var sha256: String? = null
-        val expectedName = "PdfReader-${tag.removePrefix("v")}.apk"
-        if (assets != null) {
-            for (index in 0 until assets.length()) {
-                val asset = assets.optJSONObject(index) ?: continue
-                val fileName = asset.optString("name")
-                // long: 仓库仍保留旧 reader 版本，不能按资产顺序下载其他应用或不完整的候选。
-                val url = asset.optString("browser_download_url")
-                if (fileName == expectedName && url.startsWith("https://")) {
-                    apkUrl = url
-                    sha256 = asset.optString("digest").removePrefix("sha256:")
-                        .takeIf { it.matches(Regex("[0-9a-fA-F]{64}")) }?.lowercase()
-                    break
-                }
-            }
-        }
         return ReleaseInfo(
             tagName = tag,
             name = root.optionalText("name").takeIf { it.isNotBlank() } ?: tag,
             notes = root.optionalText("body"),
             releaseUrl = releaseUrl,
-            downloadUrl = apkUrl,
-            sha256 = sha256,
         )
     }
 }

@@ -22,7 +22,7 @@ class UpdateCheckerTest {
     }
 
     @Test
-    fun parsesReleaseAndSelectsApkAsset() {
+    fun parsesReleaseMetadataWithoutDownloadAssets() {
         val release = UpdateChecker.parseRelease(
             """
             {
@@ -30,28 +30,14 @@ class UpdateCheckerTest {
               "name": "PdfReader 0.4.0",
               "body": "Form editing and settings",
               "html_url": "https://github.com/example/releases/tag/v0.4.0",
-              "assets": [
-                { "name": "reader-0.4.0.apk", "browser_download_url": "https://example.com/old.apk" },
-                { "name": "PdfReader-0.4.0.apk", "browser_download_url": "" },
-                {
-                  "name": "source.zip",
-                  "content_type": "application/zip",
-                  "browser_download_url": "https://example.com/source.zip"
-                },
-                {
-                  "name": "PdfReader-0.4.0.apk",
-                  "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                  "content_type": "application/vnd.android.package-archive",
-                  "browser_download_url": "https://example.com/app.apk"
-                }
-              ]
+              "assets": []
             }
             """.trimIndent(),
         )
 
-        assertEquals("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", release.sha256)
         assertEquals("v0.4.0", release.tagName)
         assertEquals("PdfReader 0.4.0", release.name)
-        assertEquals("https://example.com/app.apk", release.downloadUrl)
+        assertEquals("Form editing and settings", release.notes)
+        assertEquals("https://github.com/example/releases/tag/v0.4.0", release.releaseUrl)
     }
 }

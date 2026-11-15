@@ -1,0 +1,3 @@
+Removed in-app update downloading, verification and installation.
+The settings page now checks GitHub only: open GitHub when a newer release exists, or show that the app is up to date.
+ARM64 only.
